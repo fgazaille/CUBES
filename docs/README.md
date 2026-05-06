@@ -1,204 +1,143 @@
-# CUBES - AI Learning Simulation (Refactored)
+# CUBES - AI Learning Simulation
 
-A C++ simulation where AI agents learn to collect food using Deep Q-Networks (DQN) and genetic algorithms, with real-time visualization.
+A C++ reinforcement learning simulation where AI agents learn to navigate a grid world, collect food, and manage energy using Deep Q-Networks (DQN).
 
 ## Features
 
-- **Deep Q-Network (DQN)**: Agents use a 3-layer neural network for Q-value approximation
-- **Experience Replay**: Stabilizes training by breaking correlations in consecutive experiences
-- **Target Network**: Separate network for stable Q-value targets
-- **Genetic Evolution**: When agents die, top performers create the next generation through selection, crossover, and mutation
-- **Real-time Visualization**: SDL2-based rendering with:
-  - Grid world with food and agents
-  - Statistics sidebar
-  - Neural network visualizer
-  - Time warp for faster training
-- **Multi-threading**: Thread pool for parallel agent processing
+- **Neural Network AI**: Agents use feedforward neural networks (64/32 hidden neurons) with ReLU activation
+- **Reinforcement Learning**: DQN with experience replay (100K buffer), target networks, and adaptive learning rates
+- **Monotonic Improvement**: Agents never die (energy ≥ 1), preventing oscillation between generations
+- **Best Brain Preservation**: Automatically saves `brain_best.json` when improvement detected
+- **Real-time Visualization**: SDL2-based renderer with grid, agents, and statistics
+- **Multi-threaded Training**: Parallel processing with progress tracking to `training_progress.txt`
+- **Smart Resource Management**: RAII smart pointers and cached textures for performance
+
+## Building
+
+### Prerequisites
+
+**macOS:**
+```bash
+brew install sdl2 sdl2_image sdl2_ttf sdl2_mixer cmake
+```
+
+**Linux:**
+```bash
+sudo apt install libsdl2-dev libsdl2-image-dev libsdl2-ttf-dev libsdl2-mixer-dev cmake g++
+```
+
+### Compilation
+
+```bash
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j8
+```
+
+### Installation
+
+```bash
+sudo make install  # Installs to /usr/local/bin/simulation
+```
+
+## Usage
+
+### Running the Simulation
+
+```bash
+./simulation
+```
+
+### Training Mode (Multi-threaded)
+
+From the menu, select "Training" to start parallel training:
+- **Episodes**: Number of training cycles (1000-100000)
+- **Threads**: Parallel training threads (1-16)
+- **Auto-save**: Automatically saves best brain to `brain.json`
+- **Load Brain**: Start from existing `brain.json` if available
+
+Training progress is saved to `training_progress.txt` and summary to `training_summary.txt`.
+
+Press **Ctrl+C** to stop training early.
+
+### Controls
+
+**Simulation:**
+- **ESC**: Quit
+- **SPACE**: Pause/Resume (or step in debug mode)
+- **R**: Reset simulation
+- **D**: Toggle debug mode (click agents to inspect)
+- **S**: Save brain of first alive agent to `brain.json`
+- **L**: Load brain for all agents from `brain.json`
+- **F5**: Save full simulation state
+- **F9**: Load full simulation state
+- **+/-**: Adjust time warp speed
+- **0**: Reset time warp to 1x
+- **W**: Toggle time warp mode
+
+## Configuration
+
+Edit `include/core/config.hpp` to adjust:
+
+### Simulation Parameters
+- `GRID_SIZE`: Grid dimensions (default: 15x15)
+- `FOOD_COUNT`: Food items spawned (default: 50)
+- `AGENT_COUNT`: Number of AI agents (default: 5)
+- `MAX_ENERGY`: Maximum agent energy (default: 100)
+
+### Neural Network Architecture
+- `INPUT_SIZE`: 12 (position, energy, food info, boundaries)
+- `HIDDEN_LAYER1_SIZE`: 64 neurons (default)
+- `HIDDEN_LAYER2_SIZE`: 32 neurons (default)
+- `OUTPUT_SIZE`: 4 (LEFT, RIGHT, UP, DOWN)
+
+### Learning Parameters
+- `LEARNING_RATE`: 0.01 (adaptive: lower when exploring)
+- `DISCOUNT_FACTOR`: 0.99 (future reward importance)
+- `INITIAL_EXPLORE_RATE`: 1.0 (start fully random)
+- `EXPORE_DECAY`: 0.9995 (slow decay)
+- `MIN_EXPLORE_RATE`: 0.1 (always explore a bit)
+- `EXPERIENCE_BUFFER_SIZE`: 100000 (replay memory)
 
 ## Project Structure
 
 ```
-clean/
-├── CMakeLists.txt              # CMake build configuration
-├── Makefile                   # Make build configuration
-├── include/                   # Header files
-│   ├── core/                 # Core simulation logic
-│   │   ├── config.hpp        # All configuration constants (documented)
-│   │   ├── experience.hpp    # Experience replay struct
-│   │   ├── neural_network.hpp # Neural network (documented)
-│   │   ├── ai_agent.hpp     # AI agent class (documented)
-│   │   └── environment.hpp  # Simulation environment (documented)
-│   ├── rendering/            # SDL rendering logic
-│   │   ├── sdl_utils.hpp    # SDL init/cleanup (documented)
-│   │   ├── renderer.hpp     # Main rendering (documented)
-│   │   └── brain_visualizer.hpp # Brain viz (documented)
-│   ├── SDL2/                # SDL2 headers (third-party)
-│   ├── json.hpp             # nlohmann JSON library (third-party)
-│   └── BS_thread_pool.hpp   # Thread pool library (third-party)
-├── src/                      # Implementation files
-│   ├── core/
-│   │   ├── neural_network.cpp
-│   │   ├── ai_agent.cpp
-│   │   └── environment.cpp
-│   ├── rendering/
-│   │   ├── sdl_utils.cpp
-│   │   ├── renderer.cpp
-│   │   └── brain_visualizer.cpp
-│   ├── experiments/         # Old experimental versions (v0.1-v0.5)
-│   └── main.cpp             # Entry point (documented)
-├── assets/                   # Game assets
-│   ├── Player.png           # Agent sprite (32x32 recommended)
-│   ├── Food.png             # Food sprite (32x32 recommended)
-│   └── Futura.ttf          # Font file
-├── data/                     # Save data
-│   └── brain.json          # Example saved brain
-└── docs/
-    └── README.md            # This file
+CUBES/
+├── include/
+│   ├── core/           # Neural network, AI agent, environment
+│   ├── rendering/      # SDL utilities, renderer
+│   └── menu/           # Menu system
+├── src/
+│   ├── core/           # Implementation of core modules
+│   ├── rendering/      # Rendering implementation
+│   └── menu/           # Menu implementation
+├── third_party/        # Third-party headers (json.hpp, BS_thread_pool.hpp)
+├── assets/             # Textures (Player.png, Food.png) and fonts
+├── tests/              # Unit tests (test_neural_network.cpp)
+├── build/              # Build directory (gitignored)
+├── brain.json          # Saved brain (auto-generated)
+├── brain_best.json     # Best brain (auto-generated)
+├── training_progress.txt # Training progress log
+└── training_summary.txt  # Training summary
 ```
 
-## Building
+## Documentation
 
-### Using CMake (Recommended)
-
+To generate Doxygen documentation:
 ```bash
-mkdir build && cd build
-cmake ..
-make
+doxygen Doxyfile
 ```
 
-### Using Make
+## Recent Improvements
 
-```bash
-make
-```
-
-### Using Debug Build
-
-```bash
-make debug    # Adds -g flag for debugging
-```
-
-## Running
-
-```bash
-./simulation
-# or with Make:
-make run
-```
-
-## Controls
-
-| Key | Action |
-|-----|--------|
-| `ESC` | Exit the simulation |
-| `R` | Reset simulation (start new generation) |
-| `Space` | Pause/Resume simulation |
-| `W` | Toggle time warp mode |
-| `+` / `=` | Increase time warp speed |
-| `-` | Decrease time warp speed |
-| `0` | Reset warp speed to normal (1x) |
-| `B` | Toggle brain visualizer window |
-| `Mouse` | Click "Show Brain" button to open brain viz |
-
-## Configuration
-
-All configuration is in `include/core/config.hpp`. Key parameters:
-
-```cpp
-// Simulation
-constexpr int GRID_SIZE = 20;         // Grid dimensions
-constexpr int FOOD_COUNT = 30;         // Food items
-constexpr int AGENT_COUNT = 5;         // Number of agents
-
-// Neural Network
-constexpr int INPUT_SIZE = 12;         // State vector size
-constexpr int HIDDEN_LAYER1_SIZE = 32; // Neurons in first hidden layer
-constexpr int HIDDEN_LAYER2_SIZE = 16; // Neurons in second hidden layer
-constexpr int OUTPUT_SIZE = 4;         // One per action (LEFT, RIGHT, UP, DOWN)
-
-// Learning
-constexpr double LEARNING_RATE = 0.001;   // Neural network learning rate
-constexpr double DISCOUNT_FACTOR = 0.99;   // Future reward importance
-constexpr double EXPLORE_DECAY = 0.9997;  // Exploration decay per step
-```
-
-## How It Works
-
-### 1. State Representation (12 values)
-- Agent position (x, y) normalized
-- Energy level normalized
-- Distance to closest food
-- Direction to closest food (4 values)
-- Boundary awareness (4 values)
-
-### 2. Action Selection (Epsilon-Greedy)
-- With probability epsilon: explore (random action, biased toward food)
-- With probability 1-epsilon: exploit (highest Q-value)
-
-### 3. Reward Function
-- Base penalty for moving: `-ENERGY_DECAY * 0.1`
-- Large reward for eating food: `+food_value * 0.5`
-- Proximity reward for moving toward food
-- Penalty for hitting walls: `-0.2`
-- Penalty for dying: `-1.0`
-
-### 4. Learning (DQN)
-1. Store experience (state, action, reward, next_state, done)
-2. Sample mini-batch from replay buffer
-3. Compute target Q-values using target network
-4. Train policy network with MSE loss
-5. Periodically update target network
-
-### 5. Evolution (When All Agents Die)
-1. Select top 50% as parents
-2. Keep top performers unchanged (elitism)
-3. Create offspring via crossover and mutation
-4. Reset positions and energy
-
-## Dependencies
-
-- **SDL2** - Core multimedia library
-- **SDL2_image** - Image loading (PNG support)
-- **SDL2_ttf** - TrueType font rendering
-- **SDL2_mixer** - Audio support
-- **C++17** - Language standard (for `std::optional`, `std::variant`, etc.)
-- **CMake 3.10+** (optional, for CMake build)
-
-### Installing Dependencies (macOS)
-
-```bash
-brew install sdl2 sdl2_image sdl2_ttf sdl2_mixer
-```
-
-### Installing Dependencies (Ubuntu/Debian)
-
-```bash
-sudo apt-get install libsdl2-dev libsdl2-image-dev libsdl2-ttf-dev libsdl2-mixer-dev
-```
-
-## Code Documentation
-
-All code is documented with Doxygen-style comments. To generate documentation:
-
-```bash
-# Install Doxygen
-brew install doxygen   # macOS
-sudo apt-get install doxygen   # Ubuntu
-
-# Generate docs
-doxygen -g Doxyfile   # Generate config
-doxygen Doxyfile       # Build documentation
-```
+- **Fixed oscillation**: Agents never die, brains preserved across resets
+- **Increased network size**: 64/32 hidden neurons for better learning
+- **Adaptive learning rate**: Higher when exploiting, lower when exploring
+- **Stronger rewards**: +20 for food, -20 for "death" (now prevented)
+- **Text caching**: SDL text rendering optimization
+- **Training progress**: Real-time progress tracking and summary
+- **Signal handling**: Ctrl+C stops training gracefully
 
 ## License
 
-[Add your license here]
-
-## Author
-
-CUBES Project
-
-## Version History
-
-- **v2.0** (Refactored): Modular structure, comprehensive documentation, best practices
-- **v1.0** (Original): Monolithic implementation with multiple experimental versions
+MIT License - See LICENSE file for details.

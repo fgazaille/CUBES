@@ -114,20 +114,51 @@ void Environment::reset() {
     
     episode++;
     
-    // Reset agent state (keep their brains for DQN learning)
-    for (auto& agent : agents) {
-        agent.energy = MAX_ENERGY;
-        agent.pos.x = env_gen() % GRID_SIZE;
-        agent.pos.y = env_gen() % GRID_SIZE;
-        agent.total_food_eaten = 0;
+    // === Genetic Algorithm: Create new generation ===
+    int num_parents = std::max(2, static_cast<int>(agents.size()) / 2);
+    std::vector<AI> parents = select_parents(num_parents);
+    
+    std::vector<AI> new_agents;
+    
+    // Keep top 50% elites unchanged (high elitism to preserve good solutions)
+    int num_elites = std::max(2, static_cast<int>(parents.size() * 0.5));
+    for (int i = 0; i < num_elites; ++i) {
+        new_agents.push_back(parents[i]);
     }
     
-    // ALWAYS preserve best brain: load brain_best.json if it exists
+    // Create offspring through crossover and mutation
+    std::uniform_real_distribution<double> dis(0.0, 1.0);
+    while (new_agents.size() < agents.size()) {
+        int p1 = env_gen() % parents.size();
+        int p2 = env_gen() % parents.size();
+        if (p1 == p2) p2 = (p1 + 1) % parents.size();
+        
+        std::vector<double> parent1_genome = parents[p1].get_neural_network()->get_genome();
+        std::vector<double> parent2_genome = parents[p2].get_neural_network()->get_genome();
+        std::vector<double> child_genome = crossover(parent1_genome, parent2_genome);
+        
+        // 1% mutation rate to preserve good solutions
+        mutate_genome(child_genome, 0.01);
+        
+        AI child(child_genome);
+        child.energy = MAX_ENERGY;
+        child.pos.x = env_gen() % GRID_SIZE;
+        child.pos.y = env_gen() % GRID_SIZE;
+        child.total_food_eaten = 0;
+        child.color = (p1 < p2) ? parents[p1].color : parents[p2].color;
+        
+        new_agents.push_back(std::move(child));
+    }
+    
+    agents = std::move(new_agents);
+    
+    // Preserve best brain across generations
     {
         std::ifstream best_file("brain_best.json");
         if (best_file.good()) {
             try {
                 agents[0].load_brain_from_file("brain_best.json");
+                std::cout << "Preserved best brain in generation " << episode << "\n";
             } catch (...) { /* ignore */ }
         }
     }
@@ -246,7 +277,7 @@ void Environment::run_learning_step() {
         spawn_food();
     }
     
-    // === Check if all agents are dead ===
+    // === Check if all agents are dead → run evolution ===
     bool all_dead = true;
     for (const auto& agent : agents) {
         if (agent.is_alive()) {
@@ -256,23 +287,7 @@ void Environment::run_learning_step() {
     }
     
     if (all_dead) {
-        // Respawn agents with best brain, but keep food the same
-        for (auto& agent : agents) {
-            agent.energy = MAX_ENERGY;
-            agent.pos.x = env_gen() % GRID_SIZE;
-            agent.pos.y = env_gen() % GRID_SIZE;
-            agent.total_food_eaten = 0;
-        }
-        // Load best brain into first agent
-        {
-            std::ifstream best_file("brain_best.json");
-            if (best_file.good()) {
-                try {
-                    agents[0].load_brain_from_file("brain_best.json");
-                } catch (...) { /* ignore */ }
-            }
-        }
-        episode++;
+        reset();  // Runs genetic algorithm, preserves best brain, respawns food
     }
 }
 
