@@ -422,11 +422,16 @@ int main(int argc, char* argv[]) {
         if (result == MenuState::START_SIM) {
             SimulationConfig sim_config = menu.get_simulation_config();
             run_simulation(asset_path, sim_config);
-        } else if (result == MenuState::TRAINING) {
+            } else if (result == MenuState::TRAINING) {
             // Get training config from menu
             TrainingConfig config = menu.get_training_config();
             std::cout << "Starting training (" << config.episodes << " episodes, " 
                       << config.threads << " threads)...\n";
+            
+            // Set menu to training active state
+            // (In a real implementation, we'd need to pass a reference to update menu state)
+            // For now, just run training and return to menu
+
             
             // Load brain before training if requested
             if (config.load_brain) {
