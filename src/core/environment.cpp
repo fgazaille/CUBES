@@ -13,13 +13,14 @@
 #include <algorithm>
 #include <random>
 #include <iostream>
+#include <fstream>
 
 // ============================================================================
 // Environment: Construction
 // ============================================================================
 
-Environment::Environment(bool enable_display) 
-    : episode(1), display_enabled(enable_display), 
+Environment::Environment(bool) 
+    : episode(1), 
       total_food_spawned(0), simulation_running(true), 
       thread_pool(NUM_THREADS),
       env_gen(std::random_device{}()),
@@ -121,6 +122,16 @@ void Environment::reset() {
         agent.total_food_eaten = 0;
     }
     
+    // ALWAYS preserve best brain: load brain_best.json if it exists
+    {
+        std::ifstream best_file("brain_best.json");
+        if (best_file.good()) {
+            try {
+                agents[0].load_brain_from_file("brain_best.json");
+            } catch (...) { /* ignore */ }
+        }
+    }
+    
     // Respawn food
     spawn_food();
 }
@@ -146,8 +157,8 @@ void Environment::run_learning_step() {
             
             // === Get current state once ===
             std::vector<double> current_state = agent.get_state_representation(local_food);
-            Position prev_closest_food = agent.find_closest_food(local_food);
-            double prev_distance = (prev_closest_food.x != -1) ? agent.pos.distance(prev_closest_food) : 0.0;
+            auto prev_closest_food = agent.find_closest_food(local_food);
+            double prev_distance = prev_closest_food.has_value() ? agent.pos.distance(prev_closest_food.value()) : 0.0;
             
             // === Choose and execute action ===
             int action = agent.choose_action(local_food, &current_state);
@@ -163,7 +174,7 @@ void Environment::run_learning_step() {
             for (size_t k = 0; k < local_food.size(); ++k) {
                 if (agent.pos.x == local_food[k].pos.x && agent.pos.y == local_food[k].pos.y) {
                     int food_value = local_food[k].energy_value;
-                    reward += 10.0;  // Big reward for eating
+                    reward += 20.0;  // Big reward for eating
                     agent.energy += food_value;
                     if (agent.energy > MAX_ENERGY) agent.energy = MAX_ENERGY;
                     agent.total_food_eaten++;
@@ -182,25 +193,26 @@ void Environment::run_learning_step() {
             }
             
             // Reward moving toward food and penalize moving away.
-            Position next_closest_food = agent.find_closest_food(local_food);
-            double next_distance = (next_closest_food.x != -1) ? agent.pos.distance(next_closest_food) : prev_distance;
-            reward += (prev_distance - next_distance) * 0.25;
-            if (next_closest_food.x != -1 && next_distance > prev_distance) {
-                reward -= 0.02;
+            auto next_closest_food = agent.find_closest_food(local_food);
+            double next_distance = next_closest_food.has_value() ? agent.pos.distance(next_closest_food.value()) : prev_distance;
+            reward += (prev_distance - next_distance) * 0.5;  // Stronger signal
+            if (next_closest_food.has_value() && next_distance > prev_distance) {
+                reward -= 0.5;  // Stronger penalty for moving away
             }
             
             // Small penalty per step (encourages efficiency)
-            reward -= 0.01;
+            reward -= 0.05;
             
-            // Penalty for bumping into walls
+            // Penalty for bumping into walls (stronger)
             if (prev_pos == agent.pos) {
-                reward -= 0.1;
+                reward -= 1.0;
             }
             
-            // Penalty for dying
+            // Penalty for dying (should never happen with new prevention)
             if (agent.energy <= 0) {
-                reward -= 5.0;
-                agent_done = true;
+                reward -= 20.0;
+                agent.energy = 1;  // Respawn energy
+                agent_done = false;  // Never actually done
             }
             
             // === Store experience ===
@@ -244,7 +256,23 @@ void Environment::run_learning_step() {
     }
     
     if (all_dead) {
-        reset();  // Create new generation
+        // Respawn agents with best brain, but keep food the same
+        for (auto& agent : agents) {
+            agent.energy = MAX_ENERGY;
+            agent.pos.x = env_gen() % GRID_SIZE;
+            agent.pos.y = env_gen() % GRID_SIZE;
+            agent.total_food_eaten = 0;
+        }
+        // Load best brain into first agent
+        {
+            std::ifstream best_file("brain_best.json");
+            if (best_file.good()) {
+                try {
+                    agents[0].load_brain_from_file("brain_best.json");
+                } catch (...) { /* ignore */ }
+            }
+        }
+        episode++;
     }
 }
 

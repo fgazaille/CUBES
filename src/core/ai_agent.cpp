@@ -17,17 +17,13 @@
 #include <algorithm>
 #include <fstream>
 #include <sstream>
-#include <json.hpp>
+#include "json.hpp"
 
 using json = nlohmann::json;
 
 // ============================================================================
 // Position Methods
 // ============================================================================
-
-bool Position::operator==(const Position& other) const {
-    return x == other.x && y == other.y;
-}
 
 double Position::distance(const Position& other) const {
     return std::sqrt(std::pow(x - other.x, 2) + std::pow(y - other.y, 2));
@@ -37,9 +33,8 @@ double Position::distance(const Position& other) const {
 // AI Agent: Construction and Copying
 // ============================================================================
 
-AI::AI() : update_counter(0), brain_learning_rate(0), 
-            gen(std::random_device{}()), 
-            dis(0.0, 1.0) {
+AI::AI() : update_counter(0), gen(std::random_device{}()), 
+            dis(0.0, 1.0), brain_learning_rate(0) {
     
     // Random starting position
     pos.x = gen() % GRID_SIZE;
@@ -71,18 +66,54 @@ AI::AI() : update_counter(0), brain_learning_rate(0),
     synaptic_strength.resize(HIDDEN_LAYER1_SIZE, 0.0);
 }
 
+AI::AI(const std::vector<double>& genome) 
+    : update_counter(0), gen(std::random_device{}()), 
+      dis(0.0, 1.0), brain_learning_rate(0) {
+    
+    // Random starting position
+    pos.x = gen() % GRID_SIZE;
+    pos.y = gen() % GRID_SIZE;
+    
+    // Initial energy at maximum
+    energy = MAX_ENERGY;
+    explore_rate = INITIAL_EXPLORE_RATE;
+    total_food_eaten = 0;
+    
+    // Generate unique color for visualization
+    color.r = 100 + (gen() % 155);
+    color.g = 100 + (gen() % 155);
+    color.b = 100 + (gen() % 155);
+    color.a = 255;
+    
+    // Define neural network architecture
+    layer_sizes = {INPUT_SIZE, HIDDEN_LAYER1_SIZE, HIDDEN_LAYER2_SIZE, OUTPUT_SIZE};
+    
+    // Create neural networks and set genome
+    neural_network = std::make_unique<NeuralNetwork>(layer_sizes, gen, dis);
+    target_network = std::make_unique<NeuralNetwork>(layer_sizes, gen, dis);
+    neural_network->set_genome(genome);
+    target_network->copy_weights_from(*neural_network);
+    
+    // Initialize action history
+    last_actions.resize(3, LEFT);
+    
+    // Initialize visualization parameters
+    synaptic_strength.resize(HIDDEN_LAYER1_SIZE, 0.0);
+}
+
 AI::AI(const AI& other) 
-    : pos(other.pos), energy(other.energy), 
-      total_food_eaten(other.total_food_eaten), 
-      color(other.color),
-      brain_learning_rate(other.brain_learning_rate), 
-      synaptic_strength(other.synaptic_strength),
-      explore_rate(other.explore_rate), 
+    : explore_rate(other.explore_rate), 
       update_counter(other.update_counter),
       last_q_values(other.last_q_values), 
       last_actions(other.last_actions),
       gen(std::random_device{}()),  // New RNG for copy
       dis(0.0, 1.0),
+      pos(other.pos),
+      energy(other.energy), 
+      total_food_eaten(other.total_food_eaten), 
+      color(other.color),
+      brain_learning_rate(other.brain_learning_rate), 
+      synaptic_strength(other.synaptic_strength),
       layer_sizes(other.layer_sizes) {
     
     // Deep copy neural networks
@@ -199,17 +230,17 @@ std::vector<double> AI::get_state_representation(const std::vector<Food>& food_l
     state[2] = static_cast<double>(energy) / MAX_ENERGY;
     
     // [3-7]: Closest food information
-    Position closest_food = find_closest_food(food_list);
-    if (closest_food.x != -1) {
+    auto closest_food = find_closest_food(food_list);
+    if (closest_food.has_value()) {
         // [3]: Normalized distance to food
-        double distance = pos.distance(closest_food) / std::sqrt(GRID_SIZE * GRID_SIZE * 2);
+        double distance = pos.distance(closest_food.value()) / std::sqrt(GRID_SIZE * GRID_SIZE * 2);
         state[3] = distance;
         
         // [4-7]: Direction to food (one-hot encoded style)
-        state[4] = closest_food.x > pos.x ? (closest_food.x - pos.x) / static_cast<double>(GRID_SIZE) : 0;
-        state[5] = closest_food.x < pos.x ? (pos.x - closest_food.x) / static_cast<double>(GRID_SIZE) : 0;
-        state[6] = closest_food.y > pos.y ? (closest_food.y - pos.y) / static_cast<double>(GRID_SIZE) : 0;
-        state[7] = closest_food.y < pos.y ? (pos.y - closest_food.y) / static_cast<double>(GRID_SIZE) : 0;
+        state[4] = closest_food->x > pos.x ? (closest_food->x - pos.x) / static_cast<double>(GRID_SIZE) : 0;
+        state[5] = closest_food->x < pos.x ? (pos.x - closest_food->x) / static_cast<double>(GRID_SIZE) : 0;
+        state[6] = closest_food->y > pos.y ? (closest_food->y - pos.y) / static_cast<double>(GRID_SIZE) : 0;
+        state[7] = closest_food->y < pos.y ? (pos.y - closest_food->y) / static_cast<double>(GRID_SIZE) : 0;
     } else {
         // No food: set to defaults
         state[3] = 1.0;  // Maximum distance
@@ -236,12 +267,12 @@ int AI::choose_action(const std::vector<Food>& food_list, const std::vector<doub
     if (dis(gen) < explore_rate) {
         // Smart exploration: sometimes move toward food
         if (dis(gen) < 0.3) {
-            Position closest_food_pos = find_closest_food(food_list);
-            if (closest_food_pos.x != -1) {
-                if (closest_food_pos.x < pos.x) return LEFT;
-                if (closest_food_pos.x > pos.x) return RIGHT;
-                if (closest_food_pos.y < pos.y) return UP;
-                if (closest_food_pos.y > pos.y) return DOWN;
+            auto closest_food_pos = find_closest_food(food_list);
+            if (closest_food_pos.has_value()) {
+                if (closest_food_pos->x < pos.x) return LEFT;
+                if (closest_food_pos->x > pos.x) return RIGHT;
+                if (closest_food_pos->y < pos.y) return UP;
+                if (closest_food_pos->y > pos.y) return DOWN;
             }
         }
         // Random action
@@ -266,7 +297,7 @@ int AI::choose_action(const std::vector<Food>& food_list, const std::vector<doub
     // Update visualization parameters
     brain_learning_rate = 5 + static_cast<int>(30 * explore_rate);
     for (size_t i = 0; i < synaptic_strength.size(); ++i) {
-        if (gen() % 100 < brain_learning_rate) {
+        if (static_cast<int>(gen()) % 100 < brain_learning_rate) {
             synaptic_strength[i] = dis(gen);
         }
     }
@@ -274,13 +305,13 @@ int AI::choose_action(const std::vector<Food>& food_list, const std::vector<doub
     return best_action;
 }
 
-Position AI::find_closest_food(const std::vector<Food>& food_list) const {
+std::optional<Position> AI::find_closest_food(const std::vector<Food>& food_list) const {
     if (food_list.empty()) {
-        return {-1, -1};  // Sentinel value for "no food"
+        return std::nullopt;
     }
     
     double min_distance = 1e9;
-    Position closest{-1, -1};
+    std::optional<Position> closest = std::nullopt;
     
     for (const auto& food : food_list) {
         double dist = pos.distance(food.pos);
@@ -298,8 +329,6 @@ Position AI::find_closest_food(const std::vector<Food>& food_list) const {
 // ============================================================================
 
 void AI::move(int action) {
-    Position old_pos = pos;
-    
     switch (action) {
         case LEFT:  if (pos.x > 0) pos.x--; break;
         case RIGHT: if (pos.x < GRID_SIZE - 1) pos.x++; break;
@@ -307,7 +336,8 @@ void AI::move(int action) {
         case DOWN:  if (pos.y < GRID_SIZE - 1) pos.y++; break;
     }
     
-    energy -= ENERGY_DECAY;
+    // Prevent death - never let energy drop below 1
+    energy = std::max(1, energy - ENERGY_DECAY);
 }
 
 void AI::add_experience(const std::vector<double>& state, int action, 
@@ -323,6 +353,11 @@ void AI::add_experience(const std::vector<double>& state, int action,
 
 void AI::learn_from_experience() {
     if (experience_buffer.size() < BATCH_SIZE) return;
+    
+    // Adaptive learning rate: low when exploring (noisy experiences),
+    // high when exploiting (reliable experiences)
+    double adaptive_lr = LEARNING_RATE * (1.0 - 0.9 * explore_rate);
+    adaptive_lr = std::clamp(adaptive_lr, 0.0001, 0.01);
     
     // Sample mini-batch and train
     std::vector<int> batch_indices;
@@ -349,8 +384,8 @@ void AI::learn_from_experience() {
             target_q_values[exp.action] = exp.reward + DISCOUNT_FACTOR * max_next_q;
         }
         
-        // Train the network
-        neural_network->train(exp.state, target_q_values, LEARNING_RATE);
+        // Train the network with adaptive learning rate
+        neural_network->train(exp.state, target_q_values, adaptive_lr);
     }
     
     // Periodically update target network
@@ -370,7 +405,14 @@ bool AI::is_alive() const {
 }
 
 void AI::decay_exploration() { 
+    double old_rate = explore_rate;
     explore_rate = std::max(MIN_EXPLORE_RATE, explore_rate * EXPLORE_DECAY); 
+    
+    // Clear experience buffer if exploration dropped significantly
+    // This prevents learning from outdated experiences
+    if (old_rate > 0.5 && explore_rate <= 0.5) {
+        experience_buffer.clear();
+    }
 }
 
 double AI::get_explore_rate() const { 

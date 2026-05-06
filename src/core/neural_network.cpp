@@ -12,6 +12,7 @@
 #include "neural_network.hpp"
 #include <cmath>
 #include <algorithm>
+#include <numeric>  // for std::clamp
 
 // ============================================================================
 // Layer Implementation
@@ -44,10 +45,6 @@ Layer::Layer(int input_size, int output_size, std::mt19937& gen, std::uniform_re
     last_output.resize(output_size, 0.0);
 }
 
-double Layer::relu(double x) const {
-    return std::max(0.0, x);
-}
-
 std::vector<double> Layer::forward(const std::vector<double>& input) {
     last_output.resize(output_size);
     
@@ -71,7 +68,7 @@ void Layer::update_weights(const std::vector<double>& input,
     //   weight[i][j] -= lr * gradient[i] * input[j]
     
     // Clamp learning rate to prevent explosion
-    double lr = std::max(0.0001, std::min(1.0, learning_rate));
+    double lr = std::clamp(learning_rate, 0.0001, 1.0);
     
     for (int i = 0; i < output_size; ++i) {
         // Skip if gradient is invalid
@@ -81,11 +78,11 @@ void Layer::update_weights(const std::vector<double>& input,
         
         double update = lr * gradient[i];
         // Clamp update to prevent explosion
-        update = std::max(-1.0, std::min(1.0, update));
+        update = std::clamp(update, -1.0, 1.0);
         
         biases[i] -= update;
         // Clamp bias
-        biases[i] = std::max(-10.0, std::min(10.0, biases[i]));
+        biases[i] = std::clamp(biases[i], -10.0, 10.0);
         
         for (int j = 0; j < input_size; ++j) {
             // Skip if input is invalid
@@ -94,11 +91,11 @@ void Layer::update_weights(const std::vector<double>& input,
             }
             
             double w_update = update * input[j];
-            w_update = std::max(-1.0, std::min(1.0, w_update));
+            w_update = std::clamp(w_update, -1.0, 1.0);
             
             weights[i][j] -= w_update;
             // Clamp weight to prevent explosion
-            weights[i][j] = std::max(-10.0, std::min(10.0, weights[i][j]));
+            weights[i][j] = std::clamp(weights[i][j], -10.0, 10.0);
         }
     }
 }
@@ -150,34 +147,39 @@ NeuralNetwork::NeuralNetwork(const std::vector<int>& layer_sizes,
     for (size_t i = 0; i < layer_sizes.size() - 1; ++i) {
         layers.push_back(Layer(layer_sizes[i], layer_sizes[i+1], gen, dis));
     }
+    
+    // Pre-allocate forward cache if we have layers
+    if (!layers.empty()) {
+        forward_cache_.reserve(layer_sizes.back());  // output size
+    }
 }
 
 std::vector<double> NeuralNetwork::forward(const std::vector<double>& input) {
     layer_inputs[0] = input;
-    std::vector<double> current_output = input;
+    forward_cache_ = input;
     
     // Forward pass through each layer
     for (size_t i = 0; i < layers.size(); ++i) {
-        current_output = layers[i].forward(current_output);
+        forward_cache_ = layers[i].forward(forward_cache_);
         if (i < layers.size() - 1) {
-            layer_inputs[i+1] = current_output;  // Cache for backprop
+            layer_inputs[i+1] = forward_cache_;  // Cache for backprop
         }
     }
-    return current_output;
+    return forward_cache_;
 }
 
 void NeuralNetwork::forward(const std::vector<double>& input, std::vector<double>& output) {
     layer_inputs[0] = input;
-    std::vector<double> current_output = input;
+    forward_cache_ = input;
     
     // Forward pass through each layer
     for (size_t i = 0; i < layers.size(); ++i) {
-        current_output = layers[i].forward(current_output);
+        forward_cache_ = layers[i].forward(forward_cache_);
         if (i < layers.size() - 1) {
-            layer_inputs[i+1] = current_output;
+            layer_inputs[i+1] = forward_cache_;
         }
     }
-    output = std::move(current_output);
+    output = forward_cache_;
 }
 
 void NeuralNetwork::train(const std::vector<double>& input, 
@@ -204,7 +206,7 @@ void NeuralNetwork::train(const std::vector<double>& input,
         if (std::isnan(output_gradient[i]) || std::isinf(output_gradient[i])) {
             return; // Skip training if gradient is invalid
         }
-        output_gradient[i] = std::max(-10.0, std::min(10.0, output_gradient[i]));
+        output_gradient[i] = std::clamp(output_gradient[i], -10.0, 10.0);
     }
     
     // Backpropagate through layers (from output to input)
@@ -243,7 +245,15 @@ double NeuralNetwork::get_weight(int layer_index, int neuron_index, int next_neu
 
 std::vector<double> NeuralNetwork::get_genome() const {
     // Flatten all weights and biases into a single vector (genome)
+    // Pre-calculate size to avoid reallocations
+    size_t total_size = 0;
+    for (const auto& layer : layers) {
+        const auto& weights = layer.get_weights();
+        total_size += weights.size() * weights[0].size() + layer.get_biases().size();
+    }
+    
     std::vector<double> genome;
+    genome.reserve(total_size);
     for (const auto& layer : layers) {
         const auto& weights = layer.get_weights();
         const auto& biases = layer.get_biases();
@@ -259,8 +269,17 @@ void NeuralNetwork::set_genome(const std::vector<double>& genome) {
     // Reconstruct network from flattened genome
     size_t index = 0;
     for (auto& layer : layers) {
-        std::vector<std::vector<double>> weights = layer.get_weights();
-        std::vector<double> biases = layer.get_biases();
+        const auto& weights_ref = layer.get_weights();
+        const auto& biases_ref = layer.get_biases();
+        
+        // Get dimensions
+        size_t weight_rows = weights_ref.size();
+        size_t weight_cols = weight_rows > 0 ? weights_ref[0].size() : 0;
+        size_t bias_size = biases_ref.size();
+        
+        // Create new weights and biases
+        std::vector<std::vector<double>> weights(weight_rows, std::vector<double>(weight_cols));
+        std::vector<double> biases(bias_size);
         
         // Read weights
         for (auto& w : weights) {

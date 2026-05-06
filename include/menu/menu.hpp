@@ -3,14 +3,14 @@
  * @brief Home menu system for CUBES simulation.
  */
 
-#ifndef MENU_HPP_
-#define MENU_HPP_
+#pragma once
 
 #include "config.hpp"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
 #include <string>
 #include <vector>
+#include <fstream>
 
 /**
  * @brief Menu states/screens.
@@ -42,6 +42,14 @@ struct TrainingConfig {
     int threads = 4;        ///< Processing power (1-16)
     bool auto_save = true;    ///< Auto-save when done
     bool load_brain = false;  ///< Load brain.json before training
+};
+
+/**
+ * @brief Simulation configuration from menu.
+ */
+struct SimulationConfig {
+    bool load_brain = false;  ///< Load brain.json before starting
+    int fps_cap = 60;         ///< Frame rate cap (0 = unlimited)
 };
 
 /**
@@ -91,9 +99,14 @@ public:
     Menu(SDL_Renderer* renderer, TTF_Font* title_font, 
          TTF_Font* button_font, TTF_Font* text_font);
     
+    ~Menu();
+    
     MenuState run();
     
     TrainingConfig get_training_config() const { return training_config_; }
+    SimulationConfig get_simulation_config() const { 
+        SimulationConfig config;
+        config.load_brain = std::ifstream("brain.json").good();
+        return config;
+    }
 };
-
-#endif // MENU_HPP_

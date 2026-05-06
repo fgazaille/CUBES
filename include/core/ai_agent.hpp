@@ -14,8 +14,7 @@
  * and avoid running out of energy.
  */
 
-#ifndef AI_AGENT_HPP
-#define AI_AGENT_HPP
+#pragma once
 
 #include "config.hpp"
 #include "neural_network.hpp"
@@ -24,6 +23,7 @@
 #include <deque>
 #include <memory>
 #include <random>
+#include <optional>
 #include <SDL2/SDL.h>
 
 /**
@@ -42,14 +42,16 @@ struct Position {
      * @param other Position to compare with
      * @return true if positions are equal
      */
-    bool operator==(const Position& other) const;
+    [[nodiscard]] constexpr bool operator==(const Position& other) const noexcept {
+        return x == other.x && y == other.y;
+    }
     
     /**
      * @brief Calculate Euclidean distance to another position.
      * @param other Target position
      * @return Distance between positions
      */
-    double distance(const Position& other) const;
+    [[nodiscard]] double distance(const Position& other) const;
 };
 
 /**
@@ -96,6 +98,12 @@ public:
      * @brief Construct a new AI agent with random initialization.
      */
     AI();
+    
+    /**
+     * @brief Construct AI agent with specific genome.
+     * @param genome The neural network genome to use
+     */
+    AI(const std::vector<double>& genome);
 
     /**
      * @brief Copy constructor (deep copy of neural networks).
@@ -155,7 +163,7 @@ public:
      * @param food_list Current food positions
      * @return State vector of size INPUT_SIZE
      */
-    std::vector<double> get_state_representation(const std::vector<Food>& food_list) const;
+    [[nodiscard]] std::vector<double> get_state_representation(const std::vector<Food>& food_list) const;
 
     /**
      * @brief Choose an action using epsilon-greedy policy.
@@ -167,14 +175,14 @@ public:
      * @param precomputed_state Optional pre-computed state to avoid recomputation
      * @return Chosen action (0-3: LEFT, RIGHT, UP, DOWN)
      */
-    int choose_action(const std::vector<Food>& food_list, const std::vector<double>* precomputed_state = nullptr);
+    [[nodiscard]] int choose_action(const std::vector<Food>& food_list, const std::vector<double>* precomputed_state = nullptr);
 
     /**
      * @brief Find the closest food item to the agent.
      * @param food_list List of food items
-     * @return Position of closest food, or (-1,-1) if none exist
+     * @return Position of closest food, or std::nullopt if none exist
      */
-    Position find_closest_food(const std::vector<Food>& food_list) const;
+    [[nodiscard]] std::optional<Position> find_closest_food(const std::vector<Food>& food_list) const;
 
     // ========================================================================
     // Environment interaction
@@ -281,14 +289,12 @@ public:
      * @brief Get the last computed Q-values.
      * @return Vector of Q-values for each action
      */
-    std::vector<double> get_last_q_values() const;
+    [[nodiscard]] std::vector<double> get_last_q_values() const;
     
     /**
      * @brief Get current state representation.
      * @param food_list Current food positions
      * @return State vector
      */
-    std::vector<double> get_state_for_debug(const std::vector<Food>& food_list) const;
+    [[nodiscard]] std::vector<double> get_state_for_debug(const std::vector<Food>& food_list) const;
 };
-
-#endif // AI_AGENT_HPP

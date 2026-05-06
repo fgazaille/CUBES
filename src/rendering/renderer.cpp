@@ -8,9 +8,83 @@
 #include "renderer.hpp"
 #include <sstream>
 #include <iomanip>
+#include <unordered_map>
 
 // ============================================================================
-// Text Rendering
+// Text Cache Implementation
+// ============================================================================
+
+namespace {
+    struct TextCacheKey {
+        std::string text;
+        SDL_Color color;
+        
+        bool operator==(const TextCacheKey& other) const {
+            return text == other.text && 
+                   color.r == other.color.r && color.g == other.color.g &&
+                   color.b == other.color.b && color.a == other.color.a;
+        }
+    };
+    
+    struct TextCacheKeyHash {
+        std::size_t operator()(const TextCacheKey& k) const {
+            return std::hash<std::string>{}(k.text) ^ 
+                   (k.color.r << 24 | k.color.g << 16 | k.color.b << 8 | k.color.a);
+        }
+    };
+    
+    std::unordered_map<TextCacheKey, CachedText, TextCacheKeyHash> text_cache;
+    TTF_Font* last_font = nullptr;
+}
+
+void clear_text_cache() {
+    for (auto& pair : text_cache) {
+        if (pair.second.texture) {
+            SDL_DestroyTexture(pair.second.texture);
+        }
+    }
+    text_cache.clear();
+    last_font = nullptr;
+}
+
+void render_cached_text(SDL_Renderer* renderer, TTF_Font* font, 
+                        const std::string& text, int x, int y, SDL_Color color) {
+    if (!font || !renderer) return;
+    
+    // Invalidate cache if font changed
+    if (font != last_font) {
+        clear_text_cache();
+        last_font = font;
+    }
+    
+    TextCacheKey key{text, color};
+    auto it = text_cache.find(key);
+    
+    if (it == text_cache.end()) {
+        // Create new texture
+        SDL_Surface* surface = TTF_RenderText_Blended(font, text.c_str(), color);
+        if (!surface) return;
+        
+        SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
+        if (!texture) {
+            SDL_FreeSurface(surface);
+            return;
+        }
+        
+        CachedText cached{texture, surface->w, surface->h};
+        SDL_FreeSurface(surface);
+        
+        it = text_cache.emplace(key, cached).first;
+    }
+    
+    // Render cached texture
+    const CachedText& cached = it->second;
+    SDL_Rect rect = {x, y, cached.width, cached.height};
+    SDL_RenderCopy(renderer, cached.texture, NULL, &rect);
+}
+
+// ============================================================================
+// Original Text Rendering (for dynamic text)
 // ============================================================================
 
 void render_text(SDL_Renderer* renderer, TTF_Font* font, 
@@ -201,7 +275,7 @@ void render_environment(SDL_Renderer* renderer, const Environment& env,
                 GRID_WIDTH + 10, 280, text_color);
     
     // === Agent Statistics Section ===
-    render_text(renderer, regular_font, "Agent Statistics", 
+    render_cached_text(renderer, regular_font, "Agent Statistics", 
                 GRID_WIDTH + 10, 310, 
                 {COLOR_HEADER.r, COLOR_HEADER.g, COLOR_HEADER.b, 255});
     
@@ -255,24 +329,24 @@ void render_environment(SDL_Renderer* renderer, const Environment& env,
     }
     
     // === Controls Section ===
-    render_text(renderer, regular_font, "Controls", 
+    render_cached_text(renderer, regular_font, "Controls", 
                 GRID_WIDTH + 10, agentY + 10, 
                 {COLOR_HEADER.r, COLOR_HEADER.g, COLOR_HEADER.b, 255});
-    render_text(renderer, regular_font, "ESC - Exit", 
+    render_cached_text(renderer, regular_font, "ESC - Exit", 
                 GRID_WIDTH + 15, agentY + 40, text_color);
-    render_text(renderer, regular_font, "R - Reset", 
+    render_cached_text(renderer, regular_font, "R - Reset", 
                 GRID_WIDTH + 15, agentY + 65, text_color);
-    render_text(renderer, regular_font, "Space - Pause/Resume", 
+    render_cached_text(renderer, regular_font, "Space - Pause/Resume", 
                 GRID_WIDTH + 15, agentY + 90, text_color);
-    render_text(renderer, regular_font, "W - Toggle Warp", 
+    render_cached_text(renderer, regular_font, "W - Toggle Warp", 
                 GRID_WIDTH + 15, agentY + 115, text_color);
-    render_text(renderer, regular_font, "+/- - Warp Speed", 
+    render_cached_text(renderer, regular_font, "+/- - Warp Speed", 
                 GRID_WIDTH + 15, agentY + 140, text_color);
-    render_text(renderer, regular_font, "0 - Reset Warp", 
+    render_cached_text(renderer, regular_font, "0 - Reset Warp", 
                 GRID_WIDTH + 15, agentY + 165, text_color);
-    render_text(renderer, regular_font, "D - Toggle Debug", 
+    render_cached_text(renderer, regular_font, "D - Toggle Debug", 
                 GRID_WIDTH + 15, agentY + 190, text_color);
-    render_text(renderer, regular_font, "Click Agent - Debug Info", 
+    render_cached_text(renderer, regular_font, "Click Agent - Debug Info", 
                 GRID_WIDTH + 15, agentY + 215, text_color);
     
     // === Debug Overlay ===

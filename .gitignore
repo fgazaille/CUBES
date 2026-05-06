@@ -5,6 +5,10 @@ build/
 simulation
 main
 
+# Test artifacts
+tests/*.o
+tests/test_neural_network
+
 # IDE files
 .vscode/
 .idea/
@@ -23,3 +27,4 @@ docs/latex/
 # Temporary files
 *.tmp
 *.log
+session-*.md
