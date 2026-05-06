@@ -1,0 +1,25 @@
+# Build artifacts
+build/
+*.o
+*.exe
+simulation
+main
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation output
+docs/html/
+docs/latex/
+
+# Temporary files
+*.tmp
+*.log
