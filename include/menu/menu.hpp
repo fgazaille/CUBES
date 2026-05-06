@@ -34,23 +34,27 @@ struct MenuButton {
     bool hovered;
 };
 
-/**
- * @brief Training configuration.
- */
-struct TrainingConfig {
-    int episodes = 1000;     ///< Number of training episodes
-    int threads = 4;        ///< Processing power (1-16)
-    bool auto_save = true;    ///< Auto-save when done
-    bool load_brain = false;  ///< Load brain.json before training
-};
+    /**
+     * @brief Training configuration.
+     */
+    struct TrainingConfig {
+        int episodes = 1000;     ///< Number of training episodes
+        int threads = 4;        ///< Processing power (1-16)
+        bool auto_save = true;    ///< Auto-save when done
+        bool load_brain = false;  ///< Load brain.json before training
+    };
+
+    /**
+     * @brief Simulation configuration from menu.
+     */
+    struct SimulationConfig {
+        bool load_brain = false;  ///< Load brain.json before starting
+        int fps_cap = 60;         ///< Frame rate cap (0 = unlimited)
+    };
 
 /**
  * @brief Simulation configuration from menu.
  */
-struct SimulationConfig {
-    bool load_brain = false;  ///< Load brain.json before starting
-    int fps_cap = 60;         ///< Frame rate cap (0 = unlimited)
-};
 
 /**
  * @brief Home menu system for CUBES simulation.
