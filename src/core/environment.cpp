@@ -13,13 +13,14 @@
 #include <algorithm>
 #include <random>
 #include <iostream>
+#include <fstream>
 
 // ============================================================================
 // Environment: Construction
 // ============================================================================
 
-Environment::Environment(bool enable_display) 
-    : episode(1), display_enabled(enable_display), 
+Environment::Environment(bool) 
+    : episode(1), 
       total_food_spawned(0), simulation_running(true), 
       thread_pool(NUM_THREADS),
       env_gen(std::random_device{}()),
@@ -113,12 +114,53 @@ void Environment::reset() {
     
     episode++;
     
-    // Reset agent state (keep their brains for DQN learning)
-    for (auto& agent : agents) {
-        agent.energy = MAX_ENERGY;
-        agent.pos.x = env_gen() % GRID_SIZE;
-        agent.pos.y = env_gen() % GRID_SIZE;
-        agent.total_food_eaten = 0;
+    // === Genetic Algorithm: Create new generation ===
+    int num_parents = std::max(2, static_cast<int>(agents.size()) / 2);
+    std::vector<AI> parents = select_parents(num_parents);
+    
+    std::vector<AI> new_agents;
+    
+    // Keep top 50% elites unchanged (high elitism to preserve good solutions)
+    int num_elites = std::max(2, static_cast<int>(parents.size() * 0.5));
+    for (int i = 0; i < num_elites; ++i) {
+        new_agents.push_back(parents[i]);
+    }
+    
+    // Create offspring through crossover and mutation
+    std::uniform_real_distribution<double> dis(0.0, 1.0);
+    while (new_agents.size() < agents.size()) {
+        int p1 = env_gen() % parents.size();
+        int p2 = env_gen() % parents.size();
+        if (p1 == p2) p2 = (p1 + 1) % parents.size();
+        
+        std::vector<double> parent1_genome = parents[p1].get_neural_network()->get_genome();
+        std::vector<double> parent2_genome = parents[p2].get_neural_network()->get_genome();
+        std::vector<double> child_genome = crossover(parent1_genome, parent2_genome);
+        
+        // 1% mutation rate to preserve good solutions
+        mutate_genome(child_genome, 0.01);
+        
+        AI child(child_genome);
+        child.energy = MAX_ENERGY;
+        child.pos.x = env_gen() % GRID_SIZE;
+        child.pos.y = env_gen() % GRID_SIZE;
+        child.total_food_eaten = 0;
+        child.color = (p1 < p2) ? parents[p1].color : parents[p2].color;
+        
+        new_agents.push_back(std::move(child));
+    }
+    
+    agents = std::move(new_agents);
+    
+    // Preserve best brain across generations
+    {
+        std::ifstream best_file("brain_best.json");
+        if (best_file.good()) {
+            try {
+                agents[0].load_brain_from_file("brain_best.json");
+                std::cout << "Preserved best brain in generation " << episode << "\n";
+            } catch (...) { /* ignore */ }
+        }
     }
     
     // Respawn food
@@ -146,8 +188,8 @@ void Environment::run_learning_step() {
             
             // === Get current state once ===
             std::vector<double> current_state = agent.get_state_representation(local_food);
-            Position prev_closest_food = agent.find_closest_food(local_food);
-            double prev_distance = (prev_closest_food.x != -1) ? agent.pos.distance(prev_closest_food) : 0.0;
+            auto prev_closest_food = agent.find_closest_food(local_food);
+            double prev_distance = prev_closest_food.has_value() ? agent.pos.distance(prev_closest_food.value()) : 0.0;
             
             // === Choose and execute action ===
             int action = agent.choose_action(local_food, &current_state);
@@ -163,7 +205,7 @@ void Environment::run_learning_step() {
             for (size_t k = 0; k < local_food.size(); ++k) {
                 if (agent.pos.x == local_food[k].pos.x && agent.pos.y == local_food[k].pos.y) {
                     int food_value = local_food[k].energy_value;
-                    reward += 10.0;  // Big reward for eating
+                    reward += 20.0;  // Big reward for eating
                     agent.energy += food_value;
                     if (agent.energy > MAX_ENERGY) agent.energy = MAX_ENERGY;
                     agent.total_food_eaten++;
@@ -182,25 +224,26 @@ void Environment::run_learning_step() {
             }
             
             // Reward moving toward food and penalize moving away.
-            Position next_closest_food = agent.find_closest_food(local_food);
-            double next_distance = (next_closest_food.x != -1) ? agent.pos.distance(next_closest_food) : prev_distance;
-            reward += (prev_distance - next_distance) * 0.25;
-            if (next_closest_food.x != -1 && next_distance > prev_distance) {
-                reward -= 0.02;
+            auto next_closest_food = agent.find_closest_food(local_food);
+            double next_distance = next_closest_food.has_value() ? agent.pos.distance(next_closest_food.value()) : prev_distance;
+            reward += (prev_distance - next_distance) * 0.5;  // Stronger signal
+            if (next_closest_food.has_value() && next_distance > prev_distance) {
+                reward -= 0.5;  // Stronger penalty for moving away
             }
             
             // Small penalty per step (encourages efficiency)
-            reward -= 0.01;
+            reward -= 0.05;
             
-            // Penalty for bumping into walls
+            // Penalty for bumping into walls (stronger)
             if (prev_pos == agent.pos) {
-                reward -= 0.1;
+                reward -= 1.0;
             }
             
-            // Penalty for dying
+            // Penalty for dying (should never happen with new prevention)
             if (agent.energy <= 0) {
-                reward -= 5.0;
-                agent_done = true;
+                reward -= 20.0;
+                agent.energy = 1;  // Respawn energy
+                agent_done = false;  // Never actually done
             }
             
             // === Store experience ===
@@ -234,7 +277,7 @@ void Environment::run_learning_step() {
         spawn_food();
     }
     
-    // === Check if all agents are dead ===
+    // === Check if all agents are dead → run evolution ===
     bool all_dead = true;
     for (const auto& agent : agents) {
         if (agent.is_alive()) {
@@ -244,7 +287,7 @@ void Environment::run_learning_step() {
     }
     
     if (all_dead) {
-        reset();  // Create new generation
+        reset();  // Runs genetic algorithm, preserves best brain, respawns food
     }
 }
 

@@ -8,8 +8,7 @@
  * experiences and leads to better training stability.
  */
 
-#ifndef EXPERIENCE_HPP
-#define EXPERIENCE_HPP
+#pragma once
 
 #include <vector>
 
@@ -31,5 +30,3 @@ struct Experience {
     std::vector<double> next_state;    ///< State representation after action
     bool done;                          ///< Whether the episode ended (agent died)
 };
-
-#endif // EXPERIENCE_HPP

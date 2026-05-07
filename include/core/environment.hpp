@@ -1,21 +1,20 @@
 /**
- * @file environment.hpp
- * @brief Simulation environment managing agents, food, and episodes.
- * 
- * The Environment:
- * - Manages multiple AI agents
- * - Spawns and tracks food items
- * - Runs simulation steps (agent decisions, moves, rewards)
- * - Handles episode resets and evolution (selection, crossover, mutation)
- * - Uses a thread pool for parallel agent processing
- * 
- * The simulation follows an episodic structure where agents collect food
- * to maintain energy. When all agents die, a new generation is created
- * through genetic algorithms.
+ * @file environment.hpp"
+ * @brief Simulation environment managing agents, food, and episodes."
+ * "
+ * The Environment:"
+ * - Manages multiple AI agents"
+ * - Spawns and tracks food items"
+ * - Runs simulation steps (agent decisions, moves, rewards)"
+ * - Handles episode resets and evolution (selection, crossover, mutation)"
+ * - Uses a thread pool for parallel agent processing"
+ * "
+ * The simulation follows an episodic structure where agents collect food"
+ * to maintain energy. When all agents die, a new generation is created"
+ * through genetic algorithms."
  */
 
-#ifndef ENVIRONMENT_HPP
-#define ENVIRONMENT_HPP
+#pragma once
 
 #include "ai_agent.hpp"
 #include "config.hpp"
@@ -38,7 +37,6 @@ private:
     std::vector<AI> agents;               ///< AI agents in the simulation
     std::vector<Food> food_list;          ///< Currently available food items
     int episode;                           ///< Current episode number
-    bool display_enabled;                  ///< Whether display is enabled
     int total_food_spawned;               ///< Total food spawned (for stats)
     std::mutex food_mutex;                ///< Protects food_list modifications
     std::mutex agent_mutex;               ///< Protects agent state changes
@@ -184,5 +182,3 @@ public:
      */
     const std::vector<Food>& get_food_list() const;
 };
-
-#endif // ENVIRONMENT_HPP

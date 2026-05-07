@@ -6,9 +6,90 @@
 #include "menu.hpp"
 #include <sstream>
 #include <cmath>
+#include <fstream>
+#include <unordered_map>
 
 // ============================================================================
-// Menu Construction
+// Text Cache for Menu Rendering
+// ============================================================================
+
+namespace {
+    struct MenuTextCacheKey {
+        std::string text;
+        SDL_Color color;
+        
+        bool operator==(const MenuTextCacheKey& other) const {
+            return text == other.text && 
+                   color.r == other.color.r && color.g == other.color.g &&
+                   color.b == other.color.b && color.a == other.color.a;
+        }
+    };
+    
+    struct MenuTextCacheKeyHash {
+        std::size_t operator()(const MenuTextCacheKey& k) const {
+            return std::hash<std::string>{}(k.text) ^ 
+                   (k.color.r << 24 | k.color.g << 16 | k.color.b << 8 | k.color.a);
+        }
+    };
+    
+    struct CachedMenuText {
+        SDL_Texture* texture;
+        int width;
+        int height;
+        
+        CachedMenuText() : texture(nullptr), width(0), height(0) {}
+        CachedMenuText(SDL_Texture* tex, int w, int h) : texture(tex), width(w), height(h) {}
+    };
+    
+    std::unordered_map<MenuTextCacheKey, CachedMenuText, MenuTextCacheKeyHash> menu_text_cache;
+    TTF_Font* last_menu_font = nullptr;
+}
+
+void clear_menu_text_cache() {
+    for (auto& pair : menu_text_cache) {
+        if (pair.second.texture) {
+            SDL_DestroyTexture(pair.second.texture);
+        }
+    }
+    menu_text_cache.clear();
+    last_menu_font = nullptr;
+}
+
+void render_cached_menu_text(SDL_Renderer* renderer, TTF_Font* font, 
+                             const std::string& text, int x, int y, SDL_Color color) {
+    if (!font || !renderer) return;
+    
+    if (font != last_menu_font) {
+        clear_menu_text_cache();
+        last_menu_font = font;
+    }
+    
+    MenuTextCacheKey key{text, color};
+    auto it = menu_text_cache.find(key);
+    
+    if (it == menu_text_cache.end()) {
+        SDL_Surface* surface = TTF_RenderText_Blended(font, text.c_str(), color);
+        if (!surface) return;
+        
+        SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
+        if (!texture) {
+            SDL_FreeSurface(surface);
+            return;
+        }
+        
+        CachedMenuText cached{texture, surface->w, surface->h};
+        SDL_FreeSurface(surface);
+        
+        it = menu_text_cache.emplace(key, cached).first;
+    }
+    
+    const CachedMenuText& cached = it->second;
+    SDL_Rect rect = {x, y, cached.width, cached.height};
+    SDL_RenderCopy(renderer, cached.texture, NULL, &rect);
+}
+
+// ============================================================================
+// Menu Construction/Destruction
 // ============================================================================
 
 Menu::Menu(SDL_Renderer* renderer,
@@ -20,15 +101,20 @@ Menu::Menu(SDL_Renderer* renderer,
     init_home_buttons();
 }
 
+Menu::~Menu() {
+    clear_menu_text_cache();
+}
+
 // ============================================================================
 // Initialization
 // ============================================================================
 
 void Menu::init_home_buttons() {
     home_buttons_.clear();
-    home_buttons_.push_back({{300, 200, 200, 50}, "Start Simulation", false});
-    home_buttons_.push_back({{300, 270, 200, 50}, "Training", false});
-    home_buttons_.push_back({{300, 340, 200, 50}, "Exit", false});
+    home_buttons_.push_back({{300, 180, 200, 45}, "Start Simulation", false});
+    home_buttons_.push_back({{300, 235, 200, 45}, "Training", false});
+    home_buttons_.push_back({{300, 290, 200, 45}, "About", false});
+    home_buttons_.push_back({{300, 345, 200, 45}, "Exit", false});
 }
 
 // ============================================================================
@@ -49,14 +135,8 @@ int Menu::center_text_x(const std::string& text, TTF_Font* font, int total_width
 void Menu::render_text(const std::string& text, int x, int y, 
                        TTF_Font* font, SDL_Color color) {
     if (!font || !renderer_) return;
-    SDL_Surface* surface = TTF_RenderText_Blended(font, text.c_str(), color);
-    if (!surface) return;
-    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer_, surface);
-    if (!texture) { SDL_FreeSurface(surface); return; }
-    SDL_Rect rect = {x, y, surface->w, surface->h};
-    SDL_RenderCopy(renderer_, texture, NULL, &rect);
-    SDL_FreeSurface(surface);
-    SDL_DestroyTexture(texture);
+    // Use cached text rendering
+    render_cached_menu_text(renderer_, font, text, x, y, color);
 }
 
 void Menu::render_button(const MenuButton& button) {
@@ -99,6 +179,9 @@ void Menu::render_home() {
         SDL_RenderFillRect(renderer_, &row);
     }
     
+    // Check if brain.json exists and show status
+    bool brain_exists = std::ifstream("brain.json").good();
+    
     int title_x = center_text_x("CUBES", title_font_);
     render_text("CUBES", title_x, 50, title_font_, {190,190,255,255});
     int subtitle_x = center_text_x("AI Learning Simulation", text_font_);
@@ -127,13 +210,59 @@ void Menu::render_home() {
         render_button(button);
     }
     
-    render_text("v2.0 - Refactored", 10, 570, text_font_, {140,140,180,255});
+    // Show brain.json status
+    if (brain_exists) {
+        render_text("Brain file found - will auto-load", 550, 570, text_font_, {140,180,140,255});
+    } else {
+        render_text("No brain file - agents will use random brains", 550, 570, text_font_, {180,140,140,255});
+    }
+    
     SDL_RenderPresent(renderer_);
 }
 
 // ============================================================================
 // Training Screen
 // ============================================================================
+
+void Menu::render_about() {
+    SDL_SetRenderDrawColor(renderer_, 14, 18, 30, 255);
+    SDL_RenderClear(renderer_);
+    
+    int title_x = center_text_x("About CUBES", title_font_);
+    render_text("About CUBES", title_x, 50, title_font_, {190, 190, 255, 255});
+    
+    int y = 120;
+    render_text("CUBES - AI Learning Simulation", 100, y, text_font_, {220, 220, 240, 255});
+    y += 40;
+    render_text("Version 2.0 - Refactored", 100, y, text_font_, {200, 200, 220, 255});
+    y += 40;
+    render_text("Uses Deep Q-Network (DQN) reinforcement learning", 100, y, text_font_, {200, 200, 220, 255});
+    y += 30;
+    render_text("Agents learn to collect food and survive", 100, y, text_font_, {200, 200, 220, 255});
+    y += 30;
+    render_text("Genetic algorithms evolve better agents each generation", 100, y, text_font_, {200, 200, 220, 255});
+    y += 50;
+    render_text("Controls:", 100, y, text_font_, {220, 220, 240, 255});
+    y += 30;
+    render_text("ESC - Exit | R - Reset | Space - Pause", 100, y, text_font_, {180, 180, 200, 255});
+    y += 25;
+    render_text("W - Toggle Warp | +/- - Warp Speed", 100, y, text_font_, {180, 180, 200, 255});
+    y += 25;
+    render_text("D - Debug Mode | S - Save Brain | L - Load Brain", 100, y, text_font_, {180, 180, 200, 255});
+    y += 25;
+    render_text("F5 - Save State | F9 - Load State", 100, y, text_font_, {180, 180, 200, 255});
+    y += 50;
+    
+    int back_x = center_x(100);
+    SDL_Rect back_rect = {back_x, 500, 100, 40};
+    SDL_SetRenderDrawColor(renderer_, 60, 60, 80, 255);
+    SDL_RenderFillRect(renderer_, &back_rect);
+    SDL_SetRenderDrawColor(renderer_, 100, 100, 170, 255);
+    SDL_RenderDrawRect(renderer_, &back_rect);
+    render_text("Back", back_x + 25, 510, text_font_, {220, 220, 240, 255});
+    
+    SDL_RenderPresent(renderer_);
+}
 
 void Menu::render_training() {
     SDL_SetRenderDrawColor(renderer_, 14, 18, 30, 255);
@@ -303,6 +432,8 @@ void Menu::activate_home_button(int index) {
         current_state_ = MenuState::START_SIM;
     } else if (text == "Training") {
         current_state_ = MenuState::TRAINING_SCREEN;
+    } else if (text == "About") {
+        current_state_ = MenuState::ABOUT;
     } else if (text == "Exit") {
         current_state_ = MenuState::EXIT;
     }
@@ -366,6 +497,14 @@ MenuState Menu::run() {
                         handle_home_click(x, y);
                     } else if (current_state_ == MenuState::TRAINING_SCREEN) {
                         handle_training_click(x, y);
+                    } else if (current_state_ == MenuState::ABOUT) {
+                        // Check if back button clicked
+                        int back_x = center_x(100);
+                        SDL_Rect back_rect = {back_x, 500, 100, 40};
+                        if (x >= back_rect.x && x <= back_rect.x + back_rect.w &&
+                            y >= back_rect.y && y <= back_rect.y + back_rect.h) {
+                            current_state_ = MenuState::HOME;
+                        }
                     }
                 }
             } else if (event.type == SDL_KEYDOWN) {
@@ -413,6 +552,8 @@ MenuState Menu::run() {
             render_home();
         } else if (current_state_ == MenuState::TRAINING_SCREEN) {
             render_training();
+        } else if (current_state_ == MenuState::ABOUT) {
+            render_about();
         }
         
         if (current_state_ == MenuState::START_SIM || 

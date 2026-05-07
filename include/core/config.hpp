@@ -8,8 +8,7 @@
  * display settings. All constants use constexpr for compile-time optimization.
  */
 
-#ifndef CONFIG_HPP
-#define CONFIG_HPP
+#pragma once
 
 #include <cstddef>
 
@@ -20,10 +19,10 @@ namespace Config {
 // ============================================================================
 
 /** @brief Size of the grid (GRID_SIZE x GRID_SIZE cells) */
-constexpr int GRID_SIZE = 20;
+constexpr int GRID_SIZE = 15;  // Smaller = easier learning
 
 /** @brief Number of food items initially spawned */
-constexpr int FOOD_COUNT = 30;
+constexpr int FOOD_COUNT = 50;  // More food = less oscillation
 
 /** @brief Number of AI agents in the simulation */
 constexpr int AGENT_COUNT = 5;
@@ -42,7 +41,7 @@ constexpr int FOOD_ENERGY = 50;
 // ============================================================================
 
 /** @brief Learning rate for neural network training (typical range: 0.001-0.01) */
-constexpr double LEARNING_RATE = 0.001;
+constexpr double LEARNING_RATE = 0.01;  // Higher = faster learning
 
 /** @brief Discount factor for future rewards (close to 1 = long-term focus) */
 constexpr double DISCOUNT_FACTOR = 0.99;
@@ -51,13 +50,13 @@ constexpr double DISCOUNT_FACTOR = 0.99;
 constexpr double INITIAL_EXPLORE_RATE = 1.0;
 
 /** @brief Decay rate for exploration (multiplied each step) */
-constexpr double EXPLORE_DECAY = 0.9997;
+constexpr double EXPLORE_DECAY = 0.9995;  // After 10K steps ≈ 0.61, then clamps to 0.1
 
-/** @brief Minimum exploration rate (prevents completely deterministic behavior) */
-constexpr double MIN_EXPLORE_RATE = 0.01;
+/** @brief Minimum exploration rate (prevents getting stuck in local optima) */
+constexpr double MIN_EXPLORE_RATE = 0.1;  // Higher = more exploration always
 
 /** @brief Maximum size of the experience replay buffer */
-constexpr size_t EXPERIENCE_BUFFER_SIZE = 50000;
+constexpr size_t EXPERIENCE_BUFFER_SIZE = 100000;  // Larger = more stable learning
 
 /** @brief Mini-batch size for neural network training */
 constexpr int BATCH_SIZE = 32;
@@ -86,16 +85,16 @@ constexpr int NUM_THREADS = 16;
 constexpr int INPUT_SIZE = 12;
 
 /** @brief First hidden layer neuron count */
-constexpr int HIDDEN_LAYER1_SIZE = 32;
+constexpr int HIDDEN_LAYER1_SIZE = 64;  // Larger = more stable learning
 
 /** @brief Second hidden layer neuron count */
-constexpr int HIDDEN_LAYER2_SIZE = 16;
+constexpr int HIDDEN_LAYER2_SIZE = 32;  // Larger = less forgetting
 
 /** @brief Output layer size (one Q-value per possible action) */
 constexpr int OUTPUT_SIZE = 4;
 
 /** @brief Steps between target network updates (for DQN stability) */
-constexpr int TARGET_UPDATE_FREQUENCY = 100;
+constexpr int TARGET_UPDATE_FREQUENCY = 1000;  // Less frequent = more stable
 
 // ============================================================================
 // Display Parameters
@@ -136,5 +135,3 @@ constexpr double DEFAULT_TIME_WARP_FACTOR = 1.0;
 
 // Import into global namespace for convenience
 using namespace Config;
-
-#endif // CONFIG_HPP

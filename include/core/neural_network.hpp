@@ -1,20 +1,19 @@
 /**
- * @file neural_network.hpp
- * @brief Neural network implementation with backpropagation for reinforcement learning.
- * 
- * This module implements a feedforward neural network with:
- * - Multiple hidden layers with ReLU activation
- * - Xavier initialization for weights
- * - Backpropagation for training
- * - Genetic algorithm support (mutation, genome serialization)
- * - Target network support for DQN (Deep Q-Network)
- * 
- * The network is used by AI agents to approximate Q-values for
- * state-action pairs in the reinforcement learning setup.
+ * @file neural_network.hpp"
+ * @brief Neural network implementation with backpropagation for reinforcement learning."
+ * "
+ * This module implements a feedforward neural network with:"
+ * - Multiple hidden layers with ReLU activation"
+ * - Xavier initialization for weights"
+ * - Backpropagation for training"
+ * - Genetic algorithm support (mutation, genome serialization)"
+ * - Target network support for DQN (Deep Q-Network)"
+ * "
+ * The network is used by AI agents to approximate Q-values for"
+ * state-action pairs in the reinforcement learning setup."
  */
 
-#ifndef NEURAL_NETWORK_HPP
-#define NEURAL_NETWORK_HPP
+#pragma once
 
 #include <vector>
 #include <random>
@@ -53,7 +52,9 @@ public:
      * @param x Input value
      * @return max(0, x)
      */
-    double relu(double x) const;
+    [[nodiscard]] constexpr double relu(double x) const noexcept {
+        return std::max(0.0, x);
+    }
 
     /**
      * @brief Forward pass through the layer.
@@ -63,7 +64,7 @@ public:
      * @param input Input vector of size input_size
      * @return Output vector of size output_size (cached in last_output)
      */
-    std::vector<double> forward(const std::vector<double>& input);
+    [[nodiscard]] std::vector<double> forward(const std::vector<double>& input);
 
     /**
      * @brief Update weights using gradient descent.
@@ -77,12 +78,46 @@ public:
                        double learning_rate);
 
     /**
+     * @brief Get activation value of a specific neuron.
+     * @param layer_index Index of the layer (0-based)
+     * @param neuron_index Index of the neuron within the layer
+     * @return Last activation value of the neuron
+     */
+    [[nodiscard]] double get_layer_output(int layer_index, int neuron_index) const;
+    
+    /**
+     * @brief Get weight between two neurons.
+     * @param layer_index Index of the source layer
+     * @param neuron_index Index of the source neuron
+     * @param next_neuron_index Index of the target neuron
+     * @return Weight value
+     */
+    [[nodiscard]] double get_weight(int layer_index, int neuron_index, int next_neuron_index) const;
+
+    /**
+     * @brief Serialize network weights and biases into a flat vector.
+     * 
+     * Useful for genetic algorithms where the entire network is treated
+     * as a genome that can be crossed over and mutated.
+     * 
+     * @return Flattened genome vector
+     */
+    [[nodiscard]] std::vector<double> get_genome() const;
+
+    /**
+     * @brief Reconstruct network from a genome vector.
+     * 
+     * @param genome Flattened vector containing all weights and biases
+     */
+    void set_genome(const std::vector<double>& genome);
+
+    /**
      * @brief Compute gradient for the previous layer during backpropagation.
      * 
      * @param next_layer_gradient Gradient from the next layer
      * @return Gradient for the previous layer
      */
-    std::vector<double> compute_gradient(const std::vector<double>& next_layer_gradient);
+    [[nodiscard]] std::vector<double> compute_gradient(const std::vector<double>& next_layer_gradient);
 
     /**
      * @brief Apply random mutations to weights and biases.
@@ -135,7 +170,7 @@ public:
      * @param input Input vector (must match input layer size)
      * @return Output vector (matches output layer size)
      */
-    std::vector<double> forward(const std::vector<double>& input);
+    [[nodiscard]] std::vector<double> forward(const std::vector<double>& input);
     
     /**
      * @brief Forward pass reusing output vector (reduces allocation).
@@ -180,8 +215,8 @@ public:
     void mutate(double mutation_rate, std::mt19937& gen, std::uniform_real_distribution<double>& dis);
 
     // Visualization helpers
-    double get_layer_output(int layer_index, int neuron_index) const;
-    double get_weight(int layer_index, int neuron_index, int next_neuron_index) const;
+    [[nodiscard]] double get_layer_output(int layer_index, int neuron_index) const;
+    [[nodiscard]] double get_weight(int layer_index, int neuron_index, int next_neuron_index) const;
 
     /**
      * @brief Serialize network weights and biases into a flat vector.
@@ -191,7 +226,7 @@ public:
      * 
      * @return Flattened genome vector
      */
-    std::vector<double> get_genome() const;
+    [[nodiscard]] std::vector<double> get_genome() const;
 
     /**
      * @brief Reconstruct network from a genome vector.
@@ -199,6 +234,8 @@ public:
      * @param genome Flattened vector containing all weights and biases
      */
     void set_genome(const std::vector<double>& genome);
-};
 
-#endif // NEURAL_NETWORK_HPP
+private:
+    // Cached vectors to avoid reallocation during forward passes
+    std::vector<double> forward_cache_;  ///< Cache for forward pass computations
+};

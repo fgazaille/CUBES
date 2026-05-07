@@ -13,6 +13,16 @@
 #include <thread>
 #include <vector>
 #include <memory>
+#include <fstream>
+#include <csignal>
+
+// Global stop flag for training
+std::atomic<bool> g_training_stop_flag(false);
+
+void signal_handler(int) {
+    g_training_stop_flag.store(true);
+    std::cout << "\nStop signal received, finishing episode...\n";
+}
 
 // ============================================================================
 // Get asset path
@@ -46,24 +56,30 @@ std::string get_asset_path() {
 // Run simulation
 // ============================================================================
 
-void run_simulation(const std::string& asset_path) {
-    // Create window
-    SDL_Window* window = SDL_CreateWindow(
-        "CUBES - AI Learning Simulation",
-        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
+void run_simulation(const std::string& asset_path, const SimulationConfig& sim_config) {
+    // Initialize SDL and create window/renderer
+    SDL_Window* window = nullptr;
+    SDL_Renderer* renderer = nullptr;
     
+    // Initialize SDL subsystems
+    if (!init_sdl_subsystems()) {
+        return;
+    }
+    
+    // Create window and renderer
+    window = SDL_CreateWindow("CUBES - AI Learning Simulation", 
+                               SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+                               SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
     if (!window) {
         std::cerr << "Window creation failed: " << SDL_GetError() << std::endl;
         return;
     }
     
-    SDL_Renderer* renderer = SDL_CreateRenderer(
-        window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    
+    renderer = SDL_CreateRenderer(window, -1, 
+                                  SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer) {
-        SDL_DestroyWindow(window);
         std::cerr << "Renderer creation failed: " << SDL_GetError() << std::endl;
+        SDL_DestroyWindow(window);
         return;
     }
     
@@ -71,8 +87,8 @@ void run_simulation(const std::string& asset_path) {
     
     // Load fonts
     std::string font_path = asset_path + "Futura.ttf";
-    TTF_Font* large_font = TTF_OpenFont(font_path.c_str(), 24);
-    TTF_Font* regular_font = TTF_OpenFont(font_path.c_str(), 16);
+    TTF_Font* large_font = load_font(font_path.c_str(), 24);
+    TTF_Font* regular_font = load_font(font_path.c_str(), 16);
     
     if (!large_font || !regular_font) {
         std::cerr << "Font loading failed: " << TTF_GetError() << std::endl;
@@ -89,6 +105,18 @@ void run_simulation(const std::string& asset_path) {
     
     // Initialize simulation
     Environment env(true);
+    
+    // Auto-load brain.json if it exists
+    if (std::ifstream("brain.json").good()) {
+        std::cout << "Loading brain.json...\n";
+        for (size_t i = 0; i < env.get_agents().size(); ++i) {
+            try {
+                env.get_agents()[i].load_brain_from_file("brain.json");
+            } catch (const std::exception& e) {
+                std::cerr << "Failed to load brain for agent " << i << ": " << e.what() << "\n";
+            }
+        }
+    }
     
     // State
     bool paused = false;
@@ -157,7 +185,7 @@ void run_simulation(const std::string& asset_path) {
                     case SDLK_w: time_warp_mode = !time_warp_mode; break;
                     case SDLK_d: 
                         debug_mode = !debug_mode;
-                        if (debug_mode) paused = true;  // Pause in debug mode
+                        if (debug_mode) paused = true; // Pause in debug mode
                         break;
                     case SDLK_s:
                         // Save brain of first alive agent
@@ -198,6 +226,49 @@ void run_simulation(const std::string& asset_path) {
                                 message_text = "Brain Loaded!";
                             } else {
                                 message_text = "Load Failed! Save first with S";
+                            }
+                            message_timer = SDL_GetTicks() + 2000;
+                        }
+                        break;
+                    case SDLK_F5:
+                        // Save brain of first alive agent
+                        {
+                            bool any_saved = false;
+                            for (auto& agent : env.get_agents()) {
+                                if (agent.is_alive()) {
+                                    try {
+                                        agent.save_brain_to_file("brain.json");
+                                        message_text = "Brain Saved!";
+                                        message_timer = SDL_GetTicks() + 2000;
+                                        any_saved = true;
+                                        break;
+                                    } catch (const std::exception& e) {
+                                        std::cerr << "Save error: " << e.what() << std::endl;
+                                    }
+                                }
+                            }
+                            if (!any_saved) {
+                                message_text = "Save Failed!";
+                                message_timer = SDL_GetTicks() + 2000;
+                            }
+                        }
+                        break;
+                    case SDLK_F9:
+                        // Load brain for all agents
+                        {
+                            bool any_loaded = false;
+                            for (size_t i = 0; i < env.get_agents().size(); ++i) {
+                                try {
+                                    env.get_agents()[i].load_brain_from_file("brain.json");
+                                    any_loaded = true;
+                                } catch (const std::exception& e) {
+                                    std::cerr << "Load error: " << e.what() << std::endl;
+                                }
+                            }
+                            if (any_loaded) {
+                                message_text = "Brain Loaded!";
+                            } else {
+                                message_text = "Load Failed! Save first with F5";
                             }
                             message_timer = SDL_GetTicks() + 2000;
                         }
@@ -262,12 +333,22 @@ void run_simulation(const std::string& asset_path) {
             SDL_RenderPresent(renderer);
         }
         
+        // Frame rate control
         if (!time_warp_mode && !training_mode) {
-            SDL_Delay(SLEEP_MS);
+            if (sim_config.fps_cap > 0) {
+                Uint32 frame_time = SDL_GetTicks() - current_time;
+                Uint32 target_time = 1000 / sim_config.fps_cap;
+                if (frame_time < target_time) {
+                    SDL_Delay(target_time - frame_time);
+                }
+            } else {
+                SDL_Delay(SLEEP_MS);
+            }
         }
     }
     
     // Cleanup
+    clear_text_cache();
     if (agent_tex) SDL_DestroyTexture(agent_tex);
     if (food_tex) SDL_DestroyTexture(food_tex);
     TTF_CloseFont(regular_font);
@@ -281,30 +362,10 @@ void run_simulation(const std::string& asset_path) {
 // ============================================================================
 
 int main(int argc, char* argv[]) {
-    // Init SDL
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
-        std::cerr << "SDL Init Failed: " << SDL_GetError() << std::endl;
-        return 1;
-    }
+    (void)argc; (void)argv; // Unused parameters
     
-    if (TTF_Init() == -1) {
-        std::cerr << "TTF Init Failed: " << TTF_GetError() << std::endl;
-        SDL_Quit();
-        return 1;
-    }
-    
-    if (IMG_Init(IMG_INIT_PNG) == 0) {
-        std::cerr << "IMG Init Failed: " << IMG_GetError() << std::endl;
-        TTF_Quit();
-        SDL_Quit();
-        return 1;
-    }
-    
-    if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
-        std::cerr << "Mix Init Failed: " << Mix_GetError() << std::endl;
-        IMG_Quit();
-        TTF_Quit();
-        SDL_Quit();
+    // Initialize SDL subsystems once
+    if (!init_sdl_subsystems()) {
         return 1;
     }
     
@@ -312,58 +373,10 @@ int main(int argc, char* argv[]) {
     std::string asset_path = get_asset_path();
     std::string font_path = asset_path + "Futura.ttf";
     
-    // Create menu window
-    SDL_Window* menu_window = SDL_CreateWindow(
-        "CUBES - Home",
-        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        800, 600, SDL_WINDOW_SHOWN);
-    
-    if (!menu_window) {
-        std::cerr << "Menu window failed: " << SDL_GetError() << std::endl;
-        Mix_CloseAudio();
-        IMG_Quit();
-        TTF_Quit();
-        SDL_Quit();
-        return 1;
-    }
-    
-    SDL_Renderer* menu_renderer = SDL_CreateRenderer(
-        menu_window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    
-    if (!menu_renderer) {
-        SDL_DestroyWindow(menu_window);
-        Mix_CloseAudio();
-        IMG_Quit();
-        TTF_Quit();
-        SDL_Quit();
-        return 1;
-    }
-    
-    SDL_SetRenderDrawBlendMode(menu_renderer, SDL_BLENDMODE_BLEND);
-    
-    // Load menu fonts
-    TTF_Font* title_font = TTF_OpenFont(font_path.c_str(), 48);
-    TTF_Font* button_font = TTF_OpenFont(font_path.c_str(), 24);
-    TTF_Font* text_font = TTF_OpenFont(font_path.c_str(), 18);
-    
-    if (!title_font || !button_font || !text_font) {
-        std::cerr << "Menu font loading failed" << std::endl;
-        if (text_font) TTF_CloseFont(text_font);
-        if (button_font) TTF_CloseFont(button_font);
-        if (title_font) TTF_CloseFont(title_font);
-        SDL_DestroyRenderer(menu_renderer);
-        SDL_DestroyWindow(menu_window);
-        Mix_CloseAudio();
-        IMG_Quit();
-        TTF_Quit();
-        SDL_Quit();
-        return 1;
-    }
-    
     // Main loop - keeps returning to menu after actions
     bool running = true;
     while (running) {
-        // Create menu window
+        // Create menu window and renderer
         SDL_Window* menu_window = SDL_CreateWindow(
             "CUBES - Home",
             SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
@@ -384,17 +397,13 @@ int main(int argc, char* argv[]) {
         
         SDL_SetRenderDrawBlendMode(menu_renderer, SDL_BLENDMODE_BLEND);
         
-        // Load menu fonts
-        TTF_Font* title_font = TTF_OpenFont(font_path.c_str(), 48);
-        TTF_Font* button_font = TTF_OpenFont(font_path.c_str(), 24);
-        TTF_Font* text_font = TTF_OpenFont(font_path.c_str(), 18);
+        // Load menu fonts using raw pointers
+        TTF_Font* title_font = load_font(font_path.c_str(), 48);
+        TTF_Font* button_font = load_font(font_path.c_str(), 24);
+        TTF_Font* text_font = load_font(font_path.c_str(), 18);
         
         if (!title_font || !button_font || !text_font) {
-            if (text_font) TTF_CloseFont(text_font);
-            if (button_font) TTF_CloseFont(button_font);
-            if (title_font) TTF_CloseFont(title_font);
-            SDL_DestroyRenderer(menu_renderer);
-            SDL_DestroyWindow(menu_window);
+            std::cerr << "Menu font loading failed" << std::endl;
             break;
         }
         
@@ -411,12 +420,18 @@ int main(int argc, char* argv[]) {
         
         // Act on menu choice
         if (result == MenuState::START_SIM) {
-            run_simulation(asset_path);
-        } else if (result == MenuState::TRAINING) {
+            SimulationConfig sim_config = menu.get_simulation_config();
+            run_simulation(asset_path, sim_config);
+            } else if (result == MenuState::TRAINING) {
             // Get training config from menu
             TrainingConfig config = menu.get_training_config();
             std::cout << "Starting training (" << config.episodes << " episodes, " 
                       << config.threads << " threads)...\n";
+            
+            // Set menu to training active state
+            // (In a real implementation, we'd need to pass a reference to update menu state)
+            // For now, just run training and return to menu
+
             
             // Load brain before training if requested
             if (config.load_brain) {
@@ -447,25 +462,85 @@ int main(int argc, char* argv[]) {
             }
             
             // Launch training threads
+            g_training_stop_flag.store(false);
+            std::signal(SIGINT, signal_handler);
+            
+            std::cout << "Training started: " << config.episodes << " episodes, " 
+                      << config.threads << " threads\n";
+            std::cout << "Press Ctrl+C to stop early\n";
+            std::cout << "Progress file: training_progress.txt\n\n";
+            
+            // Create progress file
+            std::ofstream progress("training_progress.txt");
+            if (progress) {
+                progress << "Training started: " << config.episodes << " episodes, " 
+                            << config.threads << " threads\n";
+                progress.close();
+            }
+            
+            // Track global best for saving during training
+            std::atomic<int> global_best_food(0);
+            std::mutex best_brain_mutex;  // Protect brain_best.json from concurrent writes
+            
             for (int t = 0; t < config.threads; ++t) {
                 threads.emplace_back([&, t]() {
-                    std::cout << "Thread " << t << " started\n";
                     auto& env = *envs[t];
-                    for (int train_ep = 0; train_ep < config.episodes; ++train_ep) {
+                    int best_food_in_thread = 0;
+                    int best_agent_in_thread = 0;
+                    
+                    for (int train_ep = 0; train_ep < config.episodes && !g_training_stop_flag.load(); ++train_ep) {
                         env.run_learning_step();
+                        
+                        if ((train_ep + 1) % 100 == 0) {
+                            int current_best = 0;
+                            int current_best_idx = 0;
+                            for (size_t i = 0; i < env.get_agents().size(); ++i) {
+                                if (env.get_agents()[i].total_food_eaten > current_best) {
+                                    current_best = env.get_agents()[i].total_food_eaten;
+                                    current_best_idx = i;
+                                }
+                            }
+                            std::cout << "[Thread " << t << "] Ep " << (train_ep + 1) 
+                                      << " Best: " << current_best << " food\n";
+                            
+                            // Update progress file
+                            std::ofstream prog("training_progress.txt", std::ios::app);
+                            if (prog) {
+                                prog << "Thread " << t << ": Episode " << (train_ep + 1) 
+                                    << ", Best food: " << current_best << "\n";
+                            }
+                            
+                            // Save best brain if improved globally (with 10% threshold)
+                            if (current_best > global_best_food.load() * 1.1) {  // Only update if 10% better
+                                global_best_food.store(current_best);
+                                std::lock_guard<std::mutex> lock(best_brain_mutex);
+                                try {
+                                    env.get_agents()[current_best_idx].save_brain_to_file("brain_best.json");
+                                } catch (...) { /* ignore save errors */ }
+                            }
+                        }
                     }
-                    food_counts[t] = env.get_agents()[0].total_food_eaten;
-                    std::cout << "Thread " << t << " finished with " 
-                              << food_counts[t] << " food\n";
+                    
+                    // Find best agent after training
+                    for (size_t i = 0; i < env.get_agents().size(); ++i) {
+                        if (env.get_agents()[i].total_food_eaten > best_food_in_thread) {
+                            best_food_in_thread = env.get_agents()[i].total_food_eaten;
+                            best_agent_in_thread = i;
+                        }
+                    }
+                    food_counts[t] = best_food_in_thread;
+                    std::cout << "[Thread " << t << "] Done. Best: " << best_food_in_thread 
+                              << " (agent " << best_agent_in_thread << ")\n";
                 });
             }
             
-            // Wait for all threads to complete
+            // Wait for all threads
             for (auto& th : threads) {
-                th.join();
+                if (th.joinable()) th.join();
             }
+            std::cout << "\nTraining complete!\n";
             
-            // Find best result and save its brain
+            // Find best result
             int best_thread = 0;
             for (int t = 1; t < config.threads; ++t) {
                 if (food_counts[t] > food_counts[best_thread]) {
@@ -473,11 +548,39 @@ int main(int argc, char* argv[]) {
                 }
             }
             
+            // Find best agent in best thread
+            int best_agent_idx = 0;
+            auto& best_env = *envs[best_thread];
+            for (size_t i = 1; i < best_env.get_agents().size(); ++i) {
+                if (best_env.get_agents()[i].total_food_eaten > 
+                    best_env.get_agents()[best_agent_idx].total_food_eaten) {
+                    best_agent_idx = i;
+                }
+            }
+            
+            // Write training summary to file
+            std::ofstream summary("training_summary.txt");
+            if (summary) {
+                summary << "Training Summary\n";
+                summary << "===============\n\n";
+                summary << "Episodes per thread: " << config.episodes << "\n";
+                summary << "Threads: " << config.threads << "\n\n";
+                summary << "Results:\n";
+                for (int t = 0; t < config.threads; ++t) {
+                    summary << "  Thread " << t << ": " << food_counts[t] << " food\n";
+                }
+                summary << "\nBest: Thread " << best_thread << " Agent " << best_agent_idx 
+                          << " with " << food_counts[best_thread] << " food\n";
+                summary.close();
+                std::cout << "Summary saved to training_summary.txt\n";
+            }
+            
             std::cout << "Best result: Thread " << best_thread 
+                      << " Agent " << best_agent_idx
                       << " with " << food_counts[best_thread] << " food eaten\n";
             
             if (config.auto_save) {
-                envs[best_thread]->get_agents()[0].save_brain_to_file("brain.json");
+                envs[best_thread]->get_agents()[best_agent_idx].save_brain_to_file("brain.json");
                 std::cout << "Best brain auto-saved to brain.json\n";
             }
             
@@ -489,10 +592,7 @@ int main(int argc, char* argv[]) {
     }
     
     // Final cleanup
-    Mix_CloseAudio();
-    IMG_Quit();
-    TTF_Quit();
-    SDL_Quit();
+    quit_sdl();
     
     return 0;
 }

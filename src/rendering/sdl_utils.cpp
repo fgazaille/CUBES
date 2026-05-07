@@ -13,8 +13,16 @@
 // SDL Initialization
 // ============================================================================
 
-bool init_sdl(SDL_Window** window, SDL_Renderer** renderer, 
-               const char* title, int width, int height) {
+namespace {
+    bool sdl_initialized = false;
+}
+
+/**
+ * @brief Initialize SDL2 subsystems (call once at startup).
+ * @return true if all subsystems initialized successfully.
+ */
+bool init_sdl_subsystems() {
+    if (sdl_initialized) return true;
     
     // Initialize SDL core video and audio subsystems
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0) {
@@ -43,65 +51,73 @@ bool init_sdl(SDL_Window** window, SDL_Renderer** renderer,
         // Continue without audio
     }
     
-    // Create main window (centered on screen)
-    *window = SDL_CreateWindow(title, 
-                               SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                               width, height, SDL_WINDOW_SHOWN);
-    if (!*window) {
-        std::cerr << "Window Creation Failed: " << SDL_GetError() << std::endl;
-        Mix_CloseAudio();
-        IMG_Quit();
-        TTF_Quit();
-        SDL_Quit();
-        return false;
-    }
-    
-    // Create hardware-accelerated renderer with vsync
-    *renderer = SDL_CreateRenderer(*window, -1, 
-                                  SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    if (!*renderer) {
-        std::cerr << "Renderer Creation Failed: " << SDL_GetError() << std::endl;
-        SDL_DestroyWindow(*window);
-        Mix_CloseAudio();
-        IMG_Quit();
-        TTF_Quit();
-        SDL_Quit();
-        return false;
-    }
-    
-    // Enable alpha blending for transparency support
-    SDL_SetRenderDrawBlendMode(*renderer, SDL_BLENDMODE_BLEND);
-    
-    // Load and set window icon (if available)
-    SDL_Surface* icon = IMG_Load("icon.png");
-    if (icon) {
-        SDL_SetWindowIcon(*window, icon);
-        SDL_FreeSurface(icon);
-    }
-    
+    sdl_initialized = true;
     return true;
+}
+
+std::pair<SDL_Window*, SDL_Renderer*> init_sdl(const char* title, int width, int height) {
+    if (!init_sdl_subsystems()) {
+        return {nullptr, nullptr};
+    }
+    return create_window_and_renderer(title, width, height);
 }
 
 // ============================================================================
 // SDL Cleanup
 // ============================================================================
 
-void quit_sdl(SDL_Window* window, SDL_Renderer* renderer, 
-               TTF_Font* large_font, TTF_Font* regular_font) {
-    
-    // Close fonts
-    if (regular_font) TTF_CloseFont(regular_font);
-    if (large_font) TTF_CloseFont(large_font);
-    
-    // Destroy renderer and window
-    if (renderer) SDL_DestroyRenderer(renderer);
-    if (window) SDL_DestroyWindow(window);
-    
-    // Quit all SDL subsystems
+void quit_sdl() {
+    // Quit all SDL subsystems (order matters)
     Mix_CloseAudio();
     IMG_Quit();
     TTF_Quit();
     SDL_Quit();
+}
+
+// ============================================================================
+// Window and Renderer Creation
+// ============================================================================
+
+std::pair<SDL_Window*, SDL_Renderer*> create_window_and_renderer(const char* title, int width, int height) {
+    SDL_Window* window = nullptr;
+    SDL_Renderer* renderer = nullptr;
+    
+    // Initialize SDL subsystems if not already done
+    if (!init_sdl_subsystems()) {
+        return {nullptr, nullptr};
+    }
+    
+    // Create main window (centered on screen)
+    window = SDL_CreateWindow(title, 
+                               SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+                               width, height, SDL_WINDOW_SHOWN);
+    if (!window) {
+        std::cerr << "Window Creation Failed: " << SDL_GetError() << std::endl;
+        quit_sdl();
+        return {nullptr, nullptr};
+    }
+    
+    // Create hardware-accelerated renderer with vsync
+    renderer = SDL_CreateRenderer(window, -1, 
+                                  SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (!renderer) {
+        std::cerr << "Renderer Creation Failed: " << SDL_GetError() << std::endl;
+        SDL_DestroyWindow(window);
+        quit_sdl();
+        return {nullptr, nullptr};
+    }
+    
+    // Enable alpha blending for transparency support
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    
+    // Load and set window icon (if available)
+    SDL_Surface* icon = IMG_Load("icon.png");
+    if (icon) {
+        SDL_SetWindowIcon(window, icon);
+        SDL_FreeSurface(icon);
+    }
+    
+    return {window, renderer};
 }
 
 // ============================================================================
@@ -139,8 +155,8 @@ TTF_Font* load_font(const char* font_path, int size) {
 // ============================================================================
 
 SDL_Texture* load_scaled_texture(SDL_Renderer* renderer, 
-                                  const std::string& path, 
-                                  int target_size) {
+                                   const std::string& path, 
+                                   int target_size) {
     SDL_Texture* texture = nullptr;
     
     // Try to load image

@@ -10,14 +10,42 @@
  * - Control instructions
  */
 
-#ifndef RENDERER_HPP
-#define RENDERER_HPP
+#pragma once
 
 #include "config.hpp"
 #include "environment.hpp"
 #include "sdl_utils.hpp"
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_ttf.h>
 #include <string>
+#include <unordered_map>
+#include <memory>
+
+// ============================================================================
+// Text Cache for SDL Rendering
+// ============================================================================
+
+/**
+ * @brief Cached text texture to avoid reallocating per frame.
+ */
+struct CachedText {
+    SDL_Texture* texture;
+    int width;
+    int height;
+    
+    CachedText() : texture(nullptr), width(0), height(0) {}
+    CachedText(SDL_Texture* tex, int w, int h) : texture(tex), width(w), height(h) {}
+};
+
+/**
+ * @brief Simple text cache using hash of text content.
+ * 
+ * Note: For simplicity, this uses a static cache. 
+ * Call clear_text_cache() when changing fonts or on cleanup.
+ */
+void clear_text_cache();
+void render_cached_text(SDL_Renderer* renderer, TTF_Font* font, 
+                        const std::string& text, int x, int y, SDL_Color color);
 
 /**
  * @brief RGBA color structure.
@@ -80,7 +108,5 @@ void render_environment(SDL_Renderer* renderer, const Environment& env,
  * @param font Font for text
  */
 void render_debug_overlay(SDL_Renderer* renderer, const AI& agent, 
-                          const std::vector<Food>& food_list,
-                          int x, int y, TTF_Font* font);
-
-#endif // RENDERER_HPP_
+                           const std::vector<Food>& food_list,
+                           int x, int y, TTF_Font* font);
