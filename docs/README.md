@@ -7,7 +7,7 @@ A C++ reinforcement learning simulation where AI agents learn to navigate a grid
 - **Neural Network AI**: Agents use feedforward neural networks (64/32 hidden neurons) with ReLU activation
 - **Reinforcement Learning**: DQN with experience replay (100K buffer), target networks, and adaptive learning rates
 - **Monotonic Improvement**: Agents never die (energy ≥ 1), preventing oscillation between generations
-- **Best Brain Preservation**: Automatically saves `brain_best.json` when improvement detected
+- **Best Brain Preservation**: Automatically saves `./build/brain.json` when improvement detected
 - **Real-time Visualization**: SDL2-based renderer with grid, agents, and statistics
 - **Multi-threaded Training**: Parallel processing with progress tracking to `training_progress.txt`
 - **Smart Resource Management**: RAII smart pointers and cached textures for performance
@@ -53,8 +53,8 @@ sudo make install  # Installs to /usr/local/bin/simulation
 From the menu, select "Training" to start parallel training:
 - **Episodes**: Number of training cycles (1000-100000)
 - **Threads**: Parallel training threads (1-16)
-- **Auto-save**: Automatically saves best brain to `brain.json`
-- **Load Brain**: Start from existing `brain.json` if available
+- **Auto-save**: Automatically saves best brain to `./build/brain.json`
+- **Load Brain**: Start from existing `./build/brain.json` if available
 
 Training progress is saved to `training_progress.txt` and summary to `training_summary.txt`.
 
@@ -67,8 +67,8 @@ Press **Ctrl+C** to stop training early.
 - **SPACE**: Pause/Resume (or step in debug mode)
 - **R**: Reset simulation
 - **D**: Toggle debug mode (click agents to inspect)
-- **S**: Save brain of first alive agent to `brain.json`
-- **L**: Load brain for all agents from `brain.json`
+- **S**: Save brain of first alive agent to `./build/brain.json`
+- **L**: Load brain for all agents from `./build/brain.json`
 - **F5**: Save full simulation state
 - **F9**: Load full simulation state
 - **+/-**: Adjust time warp speed
@@ -115,8 +115,8 @@ CUBES/
 ├── assets/             # Textures (Player.png, Food.png) and fonts
 ├── tests/              # Unit tests (test_neural_network.cpp)
 ├── build/              # Build directory (gitignored)
-├── brain.json          # Saved brain (auto-generated)
-├── brain_best.json     # Best brain (auto-generated)
+├── build/brain.json    # Brain data (auto-generated)
+├── build/brain.json    # Brain data (auto-generated)
 ├── training_progress.txt # Training progress log
 └── training_summary.txt  # Training summary
 ```

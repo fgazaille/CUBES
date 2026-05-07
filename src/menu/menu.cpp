@@ -179,8 +179,8 @@ void Menu::render_home() {
         SDL_RenderFillRect(renderer_, &row);
     }
     
-    // Check if brain.json exists and show status
-    bool brain_exists = std::ifstream("brain.json").good();
+    // Check if ./build/brain.json exists and show status
+    bool brain_exists = std::ifstream("./build/brain.json").good();
     
     int title_x = center_text_x("CUBES", title_font_);
     render_text("CUBES", title_x, 50, title_font_, {190,190,255,255});
@@ -210,7 +210,7 @@ void Menu::render_home() {
         render_button(button);
     }
     
-    // Show brain.json status
+    // Show ./build/brain.json status
     if (brain_exists) {
         render_text("Brain file found - will auto-load", 550, 570, text_font_, {140,180,140,255});
     } else {

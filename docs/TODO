@@ -3,4 +3,4 @@
 - keep the window responsive during training
 - add multiple threads per training simulation
 - rename "Threads" to "Concurrent simulations"
-- force brain to be in build/ (not ./)
+- add a settings tab

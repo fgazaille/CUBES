@@ -1,0 +1,13 @@
+Training Summary
+===============
+
+Episodes per thread: 1000
+Threads: 4
+
+Results:
+  Thread 0: 190 food
+  Thread 1: 181 food
+  Thread 2: 162 food
+  Thread 3: 166 food
+
+Best: Thread 0 Agent 1 with 190 food

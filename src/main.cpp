@@ -106,12 +106,12 @@ void run_simulation(const std::string& asset_path, const SimulationConfig& sim_c
     // Initialize simulation
     Environment env(true);
     
-    // Auto-load brain.json if it exists
-    if (std::ifstream("brain.json").good()) {
-        std::cout << "Loading brain.json...\n";
+    // Auto-load ./build/brain.json if it exists
+    if (std::ifstream("./build/brain.json").good()) {
+        std::cout << "Loading ./build/brain.json...\n";
         for (size_t i = 0; i < env.get_agents().size(); ++i) {
             try {
-                env.get_agents()[i].load_brain_from_file("brain.json");
+                env.get_agents()[i].load_brain_from_file("./build/brain.json");
             } catch (const std::exception& e) {
                 std::cerr << "Failed to load brain for agent " << i << ": " << e.what() << "\n";
             }
@@ -188,13 +188,13 @@ void run_simulation(const std::string& asset_path, const SimulationConfig& sim_c
                         if (debug_mode) paused = true; // Pause in debug mode
                         break;
                     case SDLK_s:
-                        // Save brain of first alive agent
-                        {
-                            bool any_saved = false;
-                            for (const auto& agent : env.get_agents()) {
-                                if (agent.is_alive()) {
-                                    try {
-                                        agent.save_brain_to_file("brain.json");
+                         // Save brain of first alive agent
+                         {
+                             bool any_saved = false;
+                             for (const auto& agent : env.get_agents()) {
+                                 if (agent.is_alive()) {
+                                     try {
+                                         agent.save_brain_to_file("./build/brain.json");
                                         message_text = "Brain Saved!";
                                         message_timer = SDL_GetTicks() + 2000;
                                         any_saved = true;
@@ -211,12 +211,12 @@ void run_simulation(const std::string& asset_path, const SimulationConfig& sim_c
                         }
                         break;
                     case SDLK_l:
-                        // Load brain for all agents
-                        {
-                            bool any_loaded = false;
-                            for (size_t i = 0; i < env.get_agents().size(); ++i) {
-                                try {
-                                    env.get_agents()[i].load_brain_from_file("brain.json");
+                         // Load brain for all agents
+                         {
+                             bool any_loaded = false;
+                             for (size_t i = 0; i < env.get_agents().size(); ++i) {
+                                 try {
+                                     env.get_agents()[i].load_brain_from_file("./build/brain.json");
                                     any_loaded = true;
                                 } catch (const std::exception& e) {
                                     std::cerr << "Load error: " << e.what() << std::endl;
@@ -236,30 +236,30 @@ void run_simulation(const std::string& asset_path, const SimulationConfig& sim_c
                             bool any_saved = false;
                             for (auto& agent : env.get_agents()) {
                                 if (agent.is_alive()) {
-                                    try {
-                                        agent.save_brain_to_file("brain.json");
-                                        message_text = "Brain Saved!";
-                                        message_timer = SDL_GetTicks() + 2000;
-                                        any_saved = true;
-                                        break;
-                                    } catch (const std::exception& e) {
-                                        std::cerr << "Save error: " << e.what() << std::endl;
-                                    }
-                                }
-                            }
-                            if (!any_saved) {
-                                message_text = "Save Failed!";
-                                message_timer = SDL_GetTicks() + 2000;
-                            }
-                        }
-                        break;
-                    case SDLK_F9:
-                        // Load brain for all agents
-                        {
-                            bool any_loaded = false;
-                            for (size_t i = 0; i < env.get_agents().size(); ++i) {
-                                try {
-                                    env.get_agents()[i].load_brain_from_file("brain.json");
+                    try {
+                                         agent.save_brain_to_file("./build/brain.json");
+                                         message_text = "Brain Saved!";
+                                         message_timer = SDL_GetTicks() + 2000;
+                                         any_saved = true;
+                                         break;
+                                     } catch (const std::exception& e) {
+                                         std::cerr << "Save error: " << e.what() << std::endl;
+                                     }
+                                 }
+                             }
+                             if (!any_saved) {
+                                 message_text = "Save Failed!";
+                                 message_timer = SDL_GetTicks() + 2000;
+                             }
+                         }
+                         break;
+                     case SDLK_F9:
+                         // Load brain for all agents
+                         {
+                             bool any_loaded = false;
+                             for (size_t i = 0; i < env.get_agents().size(); ++i) {
+                                 try {
+                                     env.get_agents()[i].load_brain_from_file("./build/brain.json");
                                     any_loaded = true;
                                 } catch (const std::exception& e) {
                                     std::cerr << "Load error: " << e.what() << std::endl;
@@ -434,9 +434,9 @@ int main(int argc, char* argv[]) {
 
             
             // Load brain before training if requested
-            if (config.load_brain) {
-                std::cout << "Loading brain.json...\n";
-            }
+             if (config.load_brain) {
+                 std::cout << "Loading ./build/brain.json...\n";
+             }
             
             // Multi-threaded training
             std::vector<std::thread> threads;
@@ -450,10 +450,10 @@ int main(int argc, char* argv[]) {
                           << envs[t]->get_agents().size() << " agents\n";
                 
                 // Load brain if requested
-                if (config.load_brain) {
-                    for (size_t i = 0; i < envs[t]->get_agents().size(); ++i) {
-                        try {
-                            envs[t]->get_agents()[i].load_brain_from_file("brain.json");
+                 if (config.load_brain) {
+                     for (size_t i = 0; i < envs[t]->get_agents().size(); ++i) {
+                         try {
+                             envs[t]->get_agents()[i].load_brain_from_file("./build/brain.json");
                         } catch (const std::exception& e) {
                             std::cerr << "Failed to load brain for thread " << t << ": " << e.what() << "\n";
                         }
@@ -480,7 +480,7 @@ int main(int argc, char* argv[]) {
             
             // Track global best for saving during training
             std::atomic<int> global_best_food(0);
-            std::mutex best_brain_mutex;  // Protect brain_best.json from concurrent writes
+            std::mutex best_brain_mutex;  // Protect ./build/brain.json from concurrent writes
             
             for (int t = 0; t < config.threads; ++t) {
                 threads.emplace_back([&, t]() {
@@ -515,7 +515,7 @@ int main(int argc, char* argv[]) {
                                 global_best_food.store(current_best);
                                 std::lock_guard<std::mutex> lock(best_brain_mutex);
                                 try {
-                                    env.get_agents()[current_best_idx].save_brain_to_file("brain_best.json");
+                                     env.get_agents()[current_best_idx].save_brain_to_file("./build/brain.json");
                                 } catch (...) { /* ignore save errors */ }
                             }
                         }
@@ -580,8 +580,8 @@ int main(int argc, char* argv[]) {
                       << " with " << food_counts[best_thread] << " food eaten\n";
             
             if (config.auto_save) {
-                envs[best_thread]->get_agents()[best_agent_idx].save_brain_to_file("brain.json");
-                std::cout << "Best brain auto-saved to brain.json\n";
+                 envs[best_thread]->get_agents()[best_agent_idx].save_brain_to_file("./build/brain.json");
+                 std::cout << "Best brain auto-saved to ./build/brain.json\n";
             }
             
             std::cout << "Returning to menu...\n";
