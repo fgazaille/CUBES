@@ -1,0 +1,6 @@
+- add a loading bar to the training screen
+- make the X button work to close the windw
+- keep the window responsive during training
+- add multiple threads per training simulation
+- rename "Threads" to "Concurrent simulations"
+- force brain to be in build/ (not ./)
