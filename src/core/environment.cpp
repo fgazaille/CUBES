@@ -147,8 +147,8 @@ void Environment::reset() {
         std::vector<double> parent2_genome = parents[p2].get_neural_network()->get_genome();
         std::vector<double> child_genome = crossover(parent1_genome, parent2_genome);
         
-        // 1% mutation rate to preserve good solutions
-        mutate_genome(child_genome, 0.01);
+        // 0.1% mutation rate to preserve learned behaviors
+        mutate_genome(child_genome, 0.001);
         
         AI child(child_genome);
         child.energy = MAX_ENERGY;
@@ -253,7 +253,7 @@ void Environment::run_learning_step() {
             if (agent.energy <= 0) {
                 agent.energy = 0;  // Ensure energy is 0
                 reward -= 20.0;
-                agent.total_food_eaten = 0;  // Reset food count on death
+                // Note: total_food_eaten is NOT reset - we need it for parent selection
                 agent_done = true;  // Agent is actually done
             }
             

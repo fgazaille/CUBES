@@ -37,8 +37,8 @@ AI::AI() : update_counter(0), gen(std::random_device{}()),
             dis(0.0, 1.0), brain_learning_rate(0) {
     
     // Random starting position
-    pos.x = gen() % GRID_SIZE;
-    pos.y = gen() % GRID_SIZE;
+    pos.x = gen() % RuntimeConfig::instance().grid_size;
+    pos.y = gen() % RuntimeConfig::instance().grid_size;
     
     // Initial energy at maximum
     energy = MAX_ENERGY;
@@ -71,8 +71,8 @@ AI::AI(const std::vector<double>& genome)
       dis(0.0, 1.0), brain_learning_rate(0) {
     
     // Random starting position
-    pos.x = gen() % GRID_SIZE;
-    pos.y = gen() % GRID_SIZE;
+    pos.x = gen() % RuntimeConfig::instance().grid_size;
+    pos.y = gen() % RuntimeConfig::instance().grid_size;
     
     // Initial energy at maximum
     energy = MAX_ENERGY;
@@ -221,10 +221,11 @@ void AI::load_brain_from_file(const std::string& filename) {
 
 std::vector<double> AI::get_state_representation(const std::vector<Food>& food_list) const {
     std::vector<double> state(INPUT_SIZE);
+    RuntimeConfig& cfg = RuntimeConfig::instance();
     
     // [0-1]: Normalized position
-    state[0] = static_cast<double>(pos.x) / GRID_SIZE;
-    state[1] = static_cast<double>(pos.y) / GRID_SIZE;
+    state[0] = static_cast<double>(pos.x) / cfg.grid_size;
+    state[1] = static_cast<double>(pos.y) / cfg.grid_size;
     
     // [2]: Normalized energy (CRUCIAL for learning energy management)
     state[2] = static_cast<double>(energy) / MAX_ENERGY;
@@ -233,14 +234,14 @@ std::vector<double> AI::get_state_representation(const std::vector<Food>& food_l
     auto closest_food = find_closest_food(food_list);
     if (closest_food.has_value()) {
         // [3]: Normalized distance to food
-        double distance = pos.distance(closest_food.value()) / std::sqrt(GRID_SIZE * GRID_SIZE * 2);
+        double distance = pos.distance(closest_food.value()) / std::sqrt(cfg.grid_size * cfg.grid_size * 2);
         state[3] = distance;
         
         // [4-7]: Direction to food (one-hot encoded style)
-        state[4] = closest_food->x > pos.x ? (closest_food->x - pos.x) / static_cast<double>(GRID_SIZE) : 0;
-        state[5] = closest_food->x < pos.x ? (pos.x - closest_food->x) / static_cast<double>(GRID_SIZE) : 0;
-        state[6] = closest_food->y > pos.y ? (closest_food->y - pos.y) / static_cast<double>(GRID_SIZE) : 0;
-        state[7] = closest_food->y < pos.y ? (pos.y - closest_food->y) / static_cast<double>(GRID_SIZE) : 0;
+        state[4] = closest_food->x > pos.x ? (closest_food->x - pos.x) / static_cast<double>(cfg.grid_size) : 0;
+        state[5] = closest_food->x < pos.x ? (pos.x - closest_food->x) / static_cast<double>(cfg.grid_size) : 0;
+        state[6] = closest_food->y > pos.y ? (closest_food->y - pos.y) / static_cast<double>(cfg.grid_size) : 0;
+        state[7] = closest_food->y < pos.y ? (pos.y - closest_food->y) / static_cast<double>(cfg.grid_size) : 0;
     } else {
         // No food: set to defaults
         state[3] = 1.0;  // Maximum distance
@@ -248,10 +249,10 @@ std::vector<double> AI::get_state_representation(const std::vector<Food>& food_l
     }
     
     // [8-11]: Boundary awareness (distance from each edge)
-    state[8] = static_cast<double>(pos.x) / GRID_SIZE;        // Left edge
-    state[9] = static_cast<double>(GRID_SIZE - pos.x - 1) / GRID_SIZE;  // Right edge
-    state[10] = static_cast<double>(pos.y) / GRID_SIZE;       // Top edge
-    state[11] = static_cast<double>(GRID_SIZE - pos.y - 1) / GRID_SIZE; // Bottom edge
+    state[8] = static_cast<double>(pos.x) / cfg.grid_size;        // Left edge
+    state[9] = static_cast<double>(cfg.grid_size - pos.x - 1) / cfg.grid_size;  // Right edge
+    state[10] = static_cast<double>(pos.y) / cfg.grid_size;       // Top edge
+    state[11] = static_cast<double>(cfg.grid_size - pos.y - 1) / cfg.grid_size; // Bottom edge
     
     return state;
 }
@@ -329,11 +330,12 @@ std::optional<Position> AI::find_closest_food(const std::vector<Food>& food_list
 // ============================================================================
 
 void AI::move(int action) {
+    RuntimeConfig& cfg = RuntimeConfig::instance();
     switch (action) {
         case LEFT:  if (pos.x > 0) pos.x--; break;
-        case RIGHT: if (pos.x < GRID_SIZE - 1) pos.x++; break;
+        case RIGHT: if (pos.x < cfg.grid_size - 1) pos.x++; break;
         case UP:    if (pos.y > 0) pos.y--; break;
-        case DOWN:  if (pos.y < GRID_SIZE - 1) pos.y++; break;
+        case DOWN:  if (pos.y < cfg.grid_size - 1) pos.y++; break;
     }
     
     // Apply energy decay - allow energy to reach 0 for death
@@ -355,10 +357,8 @@ void AI::add_experience(const std::vector<double>& state, int action,
 void AI::learn_from_experience() {
     if (experience_buffer.size() < BATCH_SIZE) return;
     
-    // Adaptive learning rate: low when exploring (noisy experiences),
-    // high when exploiting (reliable experiences)
-    double adaptive_lr = LEARNING_RATE * (1.0 - 0.9 * explore_rate);
-    adaptive_lr = std::clamp(adaptive_lr, 0.0001, 0.01);
+    // Use fixed learning rate for consistent training
+    double lr = LEARNING_RATE;
     
     // Sample mini-batch and train
     std::vector<int> batch_indices;
@@ -385,8 +385,8 @@ void AI::learn_from_experience() {
             target_q_values[exp.action] = exp.reward + DISCOUNT_FACTOR * max_next_q;
         }
         
-        // Train the network with adaptive learning rate
-        neural_network->train(exp.state, target_q_values, adaptive_lr);
+        // Train the network with fixed learning rate
+        neural_network->train(exp.state, target_q_values, lr);
     }
     
     // Periodically update target network
@@ -406,14 +406,7 @@ bool AI::is_alive() const {
 }
 
 void AI::decay_exploration() { 
-    double old_rate = explore_rate;
     explore_rate = std::max(MIN_EXPLORE_RATE, explore_rate * EXPLORE_DECAY); 
-    
-    // Clear experience buffer if exploration dropped significantly
-    // This prevents learning from outdated experiences
-    if (old_rate > 0.5 && explore_rate <= 0.5) {
-        experience_buffer.clear();
-    }
 }
 
 double AI::get_explore_rate() const { 

@@ -28,20 +28,20 @@ constexpr int FOOD_COUNT = 50;  // More food = less oscillation
 constexpr int AGENT_COUNT = 5;
 
 /** @brief Maximum energy an agent can have */
-constexpr int MAX_ENERGY = 100;
+constexpr int MAX_ENERGY = 200;
 
 /** @brief Energy cost per movement action */
 constexpr int ENERGY_DECAY = 1;
 
 /** @brief Energy restored when consuming food */
-constexpr int FOOD_ENERGY = 50;
+constexpr int FOOD_ENERGY = 80;
 
 // ============================================================================
 // Reinforcement Learning Parameters
 // ============================================================================
 
 /** @brief Learning rate for neural network training (typical range: 0.001-0.01) */
-constexpr double LEARNING_RATE = 0.01;  // Higher = faster learning
+constexpr double LEARNING_RATE = 0.05;  // Higher = faster learning
 
 /** @brief Discount factor for future rewards (close to 1 = long-term focus) */
 constexpr double DISCOUNT_FACTOR = 0.99;
@@ -50,10 +50,10 @@ constexpr double DISCOUNT_FACTOR = 0.99;
 constexpr double INITIAL_EXPLORE_RATE = 1.0;
 
 /** @brief Decay rate for exploration (multiplied each step) */
-constexpr double EXPLORE_DECAY = 0.9995;  // After 10K steps ≈ 0.61, then clamps to 0.1
+constexpr double EXPLORE_DECAY = 0.995;  // Faster decay: After 1K steps ≈ 0.006, then clamps to 0.1
 
 /** @brief Minimum exploration rate (prevents getting stuck in local optima) */
-constexpr double MIN_EXPLORE_RATE = 0.1;  // Higher = more exploration always
+constexpr double MIN_EXPLORE_RATE = 0.05;  // Lower = more exploitation of learned behaviors
 
 /** @brief Maximum size of the experience replay buffer */
 constexpr size_t EXPERIENCE_BUFFER_SIZE = 100000;  // Larger = more stable learning
