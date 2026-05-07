@@ -93,12 +93,15 @@ void render_cached_menu_text(SDL_Renderer* renderer, TTF_Font* font,
 // ============================================================================
 
 Menu::Menu(SDL_Renderer* renderer,
-             TTF_Font* title_font, TTF_Font* button_font, TTF_Font* text_font)
+             TTF_Font* title_font, TTF_Font* button_font, TTF_Font* text_font,
+             TrainingStatus* training_status)
     : renderer_(renderer), title_font_(title_font), 
       button_font_(button_font), text_font_(text_font),
-      current_state_(MenuState::HOME) {
+      current_state_(MenuState::HOME),
+      training_status_ptr_(training_status) {
     start_time_ = SDL_GetTicks();
     init_home_buttons();
+    stop_button_rect_ = {350, 400, 100, 45};
 }
 
 Menu::~Menu() {
@@ -264,6 +267,102 @@ void Menu::render_about() {
     SDL_RenderPresent(renderer_);
 }
 
+// ============================================================================
+// Training Active Screen (Progress Bar + Stop Button)
+// ============================================================================
+
+void Menu::render_training_active() {
+    SDL_SetRenderDrawColor(renderer_, 14, 18, 30, 255);
+    SDL_RenderClear(renderer_);
+    
+    // Get progress from training_status_ptr_ if available
+    int episodes_done = 0;
+    int total_episodes = 0;
+    int threads = 0;
+    
+    if (training_status_ptr_ && training_status_ptr_->active.load()) {
+        episodes_done = training_status_ptr_->episodes_done.load();
+        total_episodes = training_status_ptr_->total_episodes.load();
+        threads = training_status_ptr_->total_threads.load();
+    }
+    
+    // Title
+    int title_x = center_text_x("Training in Progress", title_font_);
+    render_text("Training in Progress", title_x, 50, title_font_, {190, 190, 255, 255});
+    
+    // Info text
+    std::string info = "Threads: " + std::to_string(threads) + 
+                       " | Total episodes: " + std::to_string(total_episodes);
+    int info_x = center_text_x(info, text_font_);
+    render_text(info, info_x, 120, text_font_, {200, 200, 240, 255});
+    
+    // Progress bar background
+    SDL_Rect progress_bg = {150, 200, 500, 40};
+    SDL_SetRenderDrawColor(renderer_, 40, 44, 65, 255);
+    SDL_RenderFillRect(renderer_, &progress_bg);
+    SDL_SetRenderDrawColor(renderer_, 100, 100, 170, 255);
+    SDL_RenderDrawRect(renderer_, &progress_bg);
+    
+    // Progress bar fill
+    float progress = (total_episodes > 0) ? 
+                    static_cast<float>(episodes_done) / total_episodes : 0.0f;
+    progress = std::max(0.0f, std::min(1.0f, progress));
+    
+    SDL_Rect progress_fill = {150, 200, static_cast<int>(500 * progress), 40};
+    SDL_SetRenderDrawColor(renderer_, 80, 200, 80, 255);
+    SDL_RenderFillRect(renderer_, &progress_fill);
+    
+    // Progress text
+    std::string progress_text = std::to_string(episodes_done) + " / " +
+                                std::to_string(total_episodes) + " episodes";
+    int prog_x = center_text_x(progress_text, text_font_);
+    render_text(progress_text, prog_x, 250, text_font_, {255, 255, 255, 255});
+    
+    // Percentage
+    int percent = static_cast<int>(progress * 100);
+    std::string pct_text = std::to_string(percent) + "%";
+    int pct_x = center_text_x(pct_text, title_font_);
+    render_text(pct_text, pct_x, 300, title_font_, {220, 220, 255, 255});
+    
+    // Stop button
+    int mx, my;
+    SDL_GetMouseState(&mx, &my);
+    SDL_Point p = {mx, my};
+    bool stop_hovered = SDL_PointInRect(&p, &stop_button_rect_);
+    
+    SDL_Color stop_color = stop_hovered ? SDL_Color{255, 100, 100, 255} : SDL_Color{200, 60, 60, 255};
+    SDL_SetRenderDrawColor(renderer_, stop_color.r, stop_color.g, stop_color.b, stop_color.a);
+    SDL_RenderFillRect(renderer_, &stop_button_rect_);
+    SDL_SetRenderDrawColor(renderer_, 100, 100, 170, 255);
+    SDL_RenderDrawRect(renderer_, &stop_button_rect_);
+    render_text("STOP", stop_button_rect_.x + 25, stop_button_rect_.y + 12, button_font_, {255, 255, 255, 255});
+    
+    // Tip
+    int tip_x = center_text_x("Click STOP to cancel training", text_font_);
+    render_text("Click STOP to cancel training", tip_x, 470, text_font_, {180, 180, 220, 255});
+    
+    SDL_RenderPresent(renderer_);
+}
+
+void Menu::set_training_active(bool active, int total_episodes, int threads) {
+    if (training_status_ptr_) {
+        if (active) {
+            training_status_ptr_->active.store(true);
+            training_status_ptr_->episodes_done.store(0);
+            training_status_ptr_->total_episodes.store(total_episodes);
+            training_status_ptr_->total_threads.store(threads);
+        }
+    }
+    current_state_ = MenuState::TRAINING_ACTIVE;
+}
+
+bool Menu::is_training_active() const {
+    if (training_status_ptr_) {
+        return training_status_ptr_->active.load();
+    }
+    return false;
+}
+
 void Menu::render_training() {
     SDL_SetRenderDrawColor(renderer_, 14, 18, 30, 255);
     SDL_RenderClear(renderer_);
@@ -413,7 +512,11 @@ void Menu::handle_training_click(int x, int y) {
     int action_start_x = center_x(total_action_width);
     
     if (x >= action_start_x && x <= action_start_x + action_btn_w && y >= action_btn_y && y <= action_btn_y + 46) {
-        current_state_ = MenuState::TRAINING;
+        // Call callback to start training (if set)
+        if (training_start_callback_) {
+            training_start_callback_(training_config_, training_status_ptr_);
+        }
+        current_state_ = MenuState::TRAINING_ACTIVE;
         return;
     }
     if (x >= action_start_x + action_btn_w + action_btn_spacing && x <= action_start_x + 2*action_btn_w + action_btn_spacing && y >= action_btn_y && y <= action_btn_y + 46) {
@@ -505,11 +608,26 @@ MenuState Menu::run() {
                             y >= back_rect.y && y <= back_rect.y + back_rect.h) {
                             current_state_ = MenuState::HOME;
                         }
+                    } else if (current_state_ == MenuState::TRAINING_ACTIVE) {
+                        // Check if stop button clicked
+                        if (x >= stop_button_rect_.x && x <= stop_button_rect_.x + stop_button_rect_.w &&
+                            y >= stop_button_rect_.y && y <= stop_button_rect_.y + stop_button_rect_.h) {
+                            g_training_stop_flag.store(true);
+                            if (training_status_ptr_) {
+                                training_status_ptr_->stop_flag.store(true);
+                            }
+                        }
                     }
                 }
             } else if (event.type == SDL_KEYDOWN) {
                 if (event.key.keysym.sym == SDLK_ESCAPE) {
-                    if (current_state_ == MenuState::HOME) {
+                    if (current_state_ == MenuState::TRAINING_ACTIVE) {
+                        // Stop training on ESC
+                        g_training_stop_flag.store(true);
+                        if (training_status_ptr_) {
+                            training_status_ptr_->stop_flag.store(true);
+                        }
+                    } else if (current_state_ == MenuState::HOME) {
                         current_state_ = MenuState::EXIT;
                         running = false;
                     } else if (editing_field_ != EditField::NONE) {
@@ -554,6 +672,13 @@ MenuState Menu::run() {
             render_training();
         } else if (current_state_ == MenuState::ABOUT) {
             render_about();
+        } else if (current_state_ == MenuState::TRAINING_ACTIVE) {
+            render_training_active();
+            
+            // Check if training is done or was stopped
+            if (training_status_ptr_ && !training_status_ptr_->active.load()) {
+                current_state_ = MenuState::TRAINING_SCREEN;
+            }
         }
         
         if (current_state_ == MenuState::START_SIM || 

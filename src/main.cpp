@@ -16,7 +16,7 @@
 #include <fstream>
 #include <csignal>
 
-// Global stop flag for training
+// Global stop flag for training (used by signal handler)
 std::atomic<bool> g_training_stop_flag(false);
 
 void signal_handler(int) {
@@ -375,6 +375,7 @@ int main(int argc, char* argv[]) {
     
     // Main loop - keeps returning to menu after actions
     bool running = true;
+    TrainingStatus training_status;  // Persistent training status
     while (running) {
         // Create menu window and renderer
         SDL_Window* menu_window = SDL_CreateWindow(
@@ -407,53 +408,45 @@ int main(int argc, char* argv[]) {
             break;
         }
         
-        // Run menu
-        Menu menu(menu_renderer, title_font, button_font, text_font);
-        MenuState result = menu.run();
-        
-        // Cleanup menu
-        TTF_CloseFont(text_font);
-        TTF_CloseFont(button_font);
-        TTF_CloseFont(title_font);
-        SDL_DestroyRenderer(menu_renderer);
-        SDL_DestroyWindow(menu_window);
-        
-        // Act on menu choice
-        if (result == MenuState::START_SIM) {
-            SimulationConfig sim_config = menu.get_simulation_config();
-            run_simulation(asset_path, sim_config);
-            } else if (result == MenuState::TRAINING) {
-            // Get training config from menu
-            TrainingConfig config = menu.get_training_config();
-            std::cout << "Starting training (" << config.episodes << " episodes, " 
+        // Define training callback
+        auto training_callback = [&](const TrainingConfig& config, TrainingStatus* status) {
+            // Join any previous threads before starting new training
+            for (auto& th : status->threads) {
+                if (th.joinable()) th.join();
+            }
+            // Initialize status (reset all flags)
+            g_training_stop_flag.store(false);
+            status->stop_flag.store(false);
+            status->active.store(true);
+            status->episodes_done.store(0);
+            status->total_episodes.store(config.episodes * config.threads);
+            status->threads_done.store(0);
+            status->total_threads.store(config.threads);
+            status->global_best_food.store(0);
+            status->food_counts.assign(config.threads, 0);
+            status->auto_save = config.auto_save;
+            
+            std::cout << "Starting training (" << config.episodes << " episodes per thread, " 
                       << config.threads << " threads)...\n";
             
-            // Set menu to training active state
-            // (In a real implementation, we'd need to pass a reference to update menu state)
-            // For now, just run training and return to menu
-
-            
             // Load brain before training if requested
-             if (config.load_brain) {
-                 std::cout << "Loading ./build/brain.json...\n";
-             }
-            
-            // Multi-threaded training
-            std::vector<std::thread> threads;
-            std::vector<std::unique_ptr<Environment>> envs;
-            std::vector<int> food_counts(config.threads, 0);
+            if (config.load_brain) {
+                std::cout << "Loading ./build/brain.json...\n";
+            }
             
             // Create environments for each thread
+            status->envs.clear();
+            status->threads.clear();
             for (int t = 0; t < config.threads; ++t) {
-                envs.push_back(std::make_unique<Environment>(true));
+                status->envs.push_back(std::make_unique<Environment>(true));
                 std::cout << "Thread " << t << " environment created with " 
-                          << envs[t]->get_agents().size() << " agents\n";
+                          << status->envs[t]->get_agents().size() << " agents\n";
                 
                 // Load brain if requested
-                 if (config.load_brain) {
-                     for (size_t i = 0; i < envs[t]->get_agents().size(); ++i) {
-                         try {
-                             envs[t]->get_agents()[i].load_brain_from_file("./build/brain.json");
+                if (config.load_brain) {
+                    for (size_t i = 0; i < status->envs[t]->get_agents().size(); ++i) {
+                        try {
+                            status->envs[t]->get_agents()[i].load_brain_from_file("./build/brain.json");
                         } catch (const std::exception& e) {
                             std::cerr << "Failed to load brain for thread " << t << ": " << e.what() << "\n";
                         }
@@ -462,34 +455,33 @@ int main(int argc, char* argv[]) {
             }
             
             // Launch training threads
-            g_training_stop_flag.store(false);
             std::signal(SIGINT, signal_handler);
             
-            std::cout << "Training started: " << config.episodes << " episodes, " 
+            std::cout << "Training started: " << config.episodes << " episodes per thread, " 
                       << config.threads << " threads\n";
-            std::cout << "Press Ctrl+C to stop early\n";
             std::cout << "Progress file: training_progress.txt\n\n";
             
             // Create progress file
             std::ofstream progress("training_progress.txt");
             if (progress) {
                 progress << "Training started: " << config.episodes << " episodes, " 
-                            << config.threads << " threads\n";
+                         << config.threads << " threads\n";
                 progress.close();
             }
             
-            // Track global best for saving during training
-            std::atomic<int> global_best_food(0);
-            std::mutex best_brain_mutex;  // Protect ./build/brain.json from concurrent writes
-            
             for (int t = 0; t < config.threads; ++t) {
-                threads.emplace_back([&, t]() {
-                    auto& env = *envs[t];
+                status->threads.emplace_back([&, t, config, status]() {
+                    auto& env = *status->envs[t];
                     int best_food_in_thread = 0;
                     int best_agent_in_thread = 0;
                     
-                    for (int train_ep = 0; train_ep < config.episodes && !g_training_stop_flag.load(); ++train_ep) {
+                    for (int train_ep = 0; train_ep < config.episodes && 
+                           !g_training_stop_flag.load() && 
+                           !status->stop_flag.load(); ++train_ep) {
                         env.run_learning_step();
+                        
+                        // Update shared progress
+                        status->episodes_done.fetch_add(1);
                         
                         if ((train_ep + 1) % 100 == 0) {
                             int current_best = 0;
@@ -507,13 +499,14 @@ int main(int argc, char* argv[]) {
                             std::ofstream prog("training_progress.txt", std::ios::app);
                             if (prog) {
                                 prog << "Thread " << t << ": Episode " << (train_ep + 1) 
-                                    << ", Best food: " << current_best << "\n";
+                                     << ", Best food: " << current_best << "\n";
                             }
                             
                             // Save best brain if improved globally (with 10% threshold)
-                            if (current_best > global_best_food.load() * 1.1) {  // Only update if 10% better
-                                global_best_food.store(current_best);
-                                std::lock_guard<std::mutex> lock(best_brain_mutex);
+                            int current_global = status->global_best_food.load();
+                            if (current_best > current_global * 1.1) {
+                                status->global_best_food.store(current_best);
+                                std::lock_guard<std::mutex> lock(status->best_brain_mutex);
                                 try {
                                      env.get_agents()[current_best_idx].save_brain_to_file("./build/brain.json");
                                 } catch (...) { /* ignore save errors */ }
@@ -528,64 +521,48 @@ int main(int argc, char* argv[]) {
                             best_agent_in_thread = i;
                         }
                     }
-                    food_counts[t] = best_food_in_thread;
+                    status->food_counts[t] = best_food_in_thread;
+                    
+                    // Check if all threads are done, then set active = false
+                    int done = status->threads_done.fetch_add(1) + 1;
                     std::cout << "[Thread " << t << "] Done. Best: " << best_food_in_thread 
                               << " (agent " << best_agent_in_thread << ")\n";
+                    
+                    if (done >= config.threads) {
+                        // All threads done - mark training as complete
+                        status->active.store(false);
+                        std::cout << "\nTraining complete! Returning to menu...\n";
+                    }
                 });
             }
-            
-            // Wait for all threads
-            for (auto& th : threads) {
-                if (th.joinable()) th.join();
-            }
-            std::cout << "\nTraining complete!\n";
-            
-            // Find best result
-            int best_thread = 0;
-            for (int t = 1; t < config.threads; ++t) {
-                if (food_counts[t] > food_counts[best_thread]) {
-                    best_thread = t;
-                }
-            }
-            
-            // Find best agent in best thread
-            int best_agent_idx = 0;
-            auto& best_env = *envs[best_thread];
-            for (size_t i = 1; i < best_env.get_agents().size(); ++i) {
-                if (best_env.get_agents()[i].total_food_eaten > 
-                    best_env.get_agents()[best_agent_idx].total_food_eaten) {
-                    best_agent_idx = i;
-                }
-            }
-            
-            // Write training summary to file
-            std::ofstream summary("training_summary.txt");
-            if (summary) {
-                summary << "Training Summary\n";
-                summary << "===============\n\n";
-                summary << "Episodes per thread: " << config.episodes << "\n";
-                summary << "Threads: " << config.threads << "\n\n";
-                summary << "Results:\n";
-                for (int t = 0; t < config.threads; ++t) {
-                    summary << "  Thread " << t << ": " << food_counts[t] << " food\n";
-                }
-                summary << "\nBest: Thread " << best_thread << " Agent " << best_agent_idx 
-                          << " with " << food_counts[best_thread] << " food\n";
-                summary.close();
-                std::cout << "Summary saved to training_summary.txt\n";
-            }
-            
-            std::cout << "Best result: Thread " << best_thread 
-                      << " Agent " << best_agent_idx
-                      << " with " << food_counts[best_thread] << " food eaten\n";
-            
-            if (config.auto_save) {
-                 envs[best_thread]->get_agents()[best_agent_idx].save_brain_to_file("./build/brain.json");
-                 std::cout << "Best brain auto-saved to ./build/brain.json\n";
-            }
-            
-            std::cout << "Returning to menu...\n";
-            continue; // Go back to menu
+        };
+        
+        // Run menu
+        Menu menu(menu_renderer, title_font, button_font, text_font, &training_status);
+        menu.set_training_callback(training_callback);
+        
+        MenuState result = menu.run();
+        
+        // Cleanup menu
+        TTF_CloseFont(text_font);
+        TTF_CloseFont(button_font);
+        TTF_CloseFont(title_font);
+        SDL_DestroyRenderer(menu_renderer);
+        SDL_DestroyWindow(menu_window);
+        
+        // Always join any remaining threads and cleanup after menu returns
+        // (even if training completed normally, threads need to be joined)
+        for (auto& th : training_status.threads) {
+            if (th.joinable()) th.join();
+        }
+        training_status.threads.clear();
+        training_status.envs.clear();
+        training_status.active.store(false);
+        
+        // Act on menu choice
+        if (result == MenuState::START_SIM) {
+            SimulationConfig sim_config = menu.get_simulation_config();
+            run_simulation(asset_path, sim_config);
         } else if (result == MenuState::EXIT) {
             running = false;
         }

@@ -1,6 +1,5 @@
-- add a loading bar to the training screen
-- make the X button work to close the windw
-- keep the window responsive during training
-- add multiple threads per training simulation
+- add multiple compute threads per training simulation
 - rename "Threads" to "Concurrent simulations"
 - add a settings tab
+- fix S not saving: Save error: Could not save to file: ./build/brain.json
+- fix players sometimes  walking over food
