@@ -336,8 +336,9 @@ void AI::move(int action) {
         case DOWN:  if (pos.y < GRID_SIZE - 1) pos.y++; break;
     }
     
-    // Prevent death - never let energy drop below 1
-    energy = std::max(1, energy - ENERGY_DECAY);
+    // Apply energy decay - allow energy to reach 0 for death
+    energy = energy - ENERGY_DECAY;
+    if (energy < 0) energy = 0;
 }
 
 void AI::add_experience(const std::vector<double>& state, int action, 

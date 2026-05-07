@@ -249,12 +249,12 @@ void Environment::run_learning_step() {
                 reward -= 1.0;
             }
             
-            // Penalty for dying (should never happen with new prevention)
+            // Handle death when energy depleted
             if (agent.energy <= 0) {
+                agent.energy = 0;  // Ensure energy is 0
                 reward -= 20.0;
-                agent.energy = 1;  // Respawn energy
                 agent.total_food_eaten = 0;  // Reset food count on death
-                agent_done = false;  // Never actually done
+                agent_done = true;  // Agent is actually done
             }
             
             // === Store experience ===
