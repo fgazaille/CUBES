@@ -68,7 +68,7 @@ enum class MenuState {
     TRAINING_SCREEN,///< Training options screen (settings)
     TRAINING,       ///< Start training and exit menu
     TRAINING_ACTIVE,///< Training in progress with progress bar
-    SETTINGS,       ///< Configuration editor
+    SETTINGS,       ///< Settings screen
     ABOUT,          ///< About/help screen
     START_SIM,      ///< Start the simulation
     EXIT            ///< Exit the program
@@ -102,16 +102,17 @@ private:
     TrainingStatus* training_status_ptr_;
     SDL_Rect stop_button_rect_;
     
+    // Text input state
+    enum class EditField { NONE, EPISODES, THREADS, AGENTS, FOOD_COUNT, GRID_SIZE, FOOD_THRESHOLD };
+    
     void init_home_buttons();
     void render_home();
     void render_training();
     void render_training_active();
-    void render_settings();
     void render_about();
     
     void handle_home_click(int x, int y);
     void handle_training_click(int x, int y);
-    void handle_settings_click(int x, int y);
     void apply_edits();
     
     void render_button(const MenuButton& button);
@@ -121,13 +122,16 @@ private:
     int center_text_x(const std::string& text, TTF_Font* font, int total_width = 800);
     void activate_home_button(int index);
     
+    // Settings screen methods
+    void render_settings();
+    void handle_settings_click(int x, int y);
+    void render_field(const SDL_Rect& field, EditField field_type, const std::string& display);
+    
     // Menu navigation state
     int selected_home_button_index_ = 0;
     int mouse_x_ = 0;
     int mouse_y_ = 0;
     
-    // Text input state
-    enum class EditField { NONE, EPISODES, THREADS };
     EditField editing_field_ = EditField::NONE;
     std::string input_buffer_;
     

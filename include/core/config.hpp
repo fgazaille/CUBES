@@ -135,3 +135,25 @@ constexpr double DEFAULT_TIME_WARP_FACTOR = 1.0;
 
 // Import into global namespace for convenience
 using namespace Config;
+
+// ============================================================================
+// Runtime Configuration (mutable settings)
+// ============================================================================
+
+/**
+ * @brief Runtime configuration that can be changed via settings menu.
+ * 
+ * These values override the constexpr defaults at runtime.
+ */
+struct RuntimeConfig {
+    int grid_size = GRID_SIZE;
+    int food_count = FOOD_COUNT;
+    int agent_count = AGENT_COUNT;
+    int food_energy = FOOD_ENERGY;
+    int food_reset_threshold = 10;  ///< Respawn food when count drops below this
+    
+    static RuntimeConfig& instance() {
+        static RuntimeConfig config;
+        return config;
+    }
+};

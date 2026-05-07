@@ -46,7 +46,7 @@ private:
     std::mt19937 env_gen;                 ///< Random generator for environment
     
     // Learning metrics
-    double total_food_eaten_this_episode; ///< Track food eaten per episode
+    std::atomic<int> total_food_eaten_this_episode{0}; ///< Track food eaten per episode
     double avg_food_per_episode;          ///< Running average of food per episode
     int episode_count_for_avg;             ///< Count for calculating average
 
@@ -94,6 +94,17 @@ public:
      * @param enable_display Whether to enable visual display
      */
     Environment(bool enable_display);
+    
+    /**
+     * @brief Get the current agent count from runtime config.
+     * @return Agent count
+     */
+    int get_agent_count() const { return agents.size(); }
+    
+    /**
+     * @brief Check and respawn food if below threshold.
+     */
+    void check_food_reset();
 
     /**
      * @brief Reset the simulation for a new generation.

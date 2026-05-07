@@ -6,6 +6,7 @@
  */
 
 #include "renderer.hpp"
+#include "config.hpp"
 #include <sstream>
 #include <iomanip>
 #include <unordered_map>
@@ -143,6 +144,11 @@ void render_environment(SDL_Renderer* renderer, const Environment& env,
                         bool time_warp_mode, double time_warp_factor,
                         bool debug_mode, int selected_agent) {
     
+    RuntimeConfig& cfg = RuntimeConfig::instance();
+    int cell_size = (SCREEN_WIDTH - SIDEBAR_WIDTH) / cfg.grid_size;
+    int grid_pixel_width = cell_size * cfg.grid_size;
+    int grid_pixel_height = cell_size * cfg.grid_size;
+    
     // === Clear screen with background color ===
     SDL_SetRenderDrawColor(renderer, COLOR_BACKGROUND.r, COLOR_BACKGROUND.g, 
                           COLOR_BACKGROUND.b, COLOR_BACKGROUND.a);
@@ -150,26 +156,26 @@ void render_environment(SDL_Renderer* renderer, const Environment& env,
     
     // === Draw grid background ===
     SDL_SetRenderDrawColor(renderer, 30, 30, 40, 255);
-    SDL_Rect grid_rect = {0, 0, GRID_WIDTH, GRID_HEIGHT};
+    SDL_Rect grid_rect = {0, 0, grid_pixel_width, grid_pixel_height};
     SDL_RenderFillRect(renderer, &grid_rect);
     
     // === Draw grid lines ===
     SDL_SetRenderDrawColor(renderer, COLOR_GRID.r, COLOR_GRID.g, 
                           COLOR_GRID.b, COLOR_GRID.a);
-    for (int i = 0; i <= GRID_SIZE; ++i) {
-        SDL_RenderDrawLine(renderer, i * CELL_SIZE, 0, 
-                          i * CELL_SIZE, GRID_HEIGHT);
-        SDL_RenderDrawLine(renderer, 0, i * CELL_SIZE, 
-                          GRID_WIDTH, i * CELL_SIZE);
+    for (int i = 0; i <= cfg.grid_size; ++i) {
+        SDL_RenderDrawLine(renderer, i * cell_size, 0, 
+                          i * cell_size, grid_pixel_height);
+        SDL_RenderDrawLine(renderer, 0, i * cell_size, 
+                          grid_pixel_width, i * cell_size);
     }
     
     // === Draw food items ===
     for (const auto& food : env.get_food_list()) {
         SDL_Rect food_rect = {
-            food.pos.x * CELL_SIZE, 
-            food.pos.y * CELL_SIZE, 
-            CELL_SIZE, 
-            CELL_SIZE
+            food.pos.x * cell_size, 
+            food.pos.y * cell_size, 
+            cell_size, 
+            cell_size
         };
         SDL_RenderCopy(renderer, food_tex, NULL, &food_rect);
     }
@@ -178,10 +184,10 @@ void render_environment(SDL_Renderer* renderer, const Environment& env,
     for (const auto& agent : env.get_agents()) {
         if (agent.is_alive()) {
             SDL_Rect agent_rect = {
-                agent.pos.x * CELL_SIZE, 
-                agent.pos.y * CELL_SIZE, 
-                CELL_SIZE, 
-                CELL_SIZE
+                agent.pos.x * cell_size, 
+                agent.pos.y * cell_size, 
+                cell_size, 
+                cell_size
             };
             // Apply agent's unique color to texture
             SDL_SetTextureColorMod(agent_tex, agent.color.r, 
@@ -194,10 +200,10 @@ void render_environment(SDL_Renderer* renderer, const Environment& env,
     if (debug_mode && selected_agent >= 0 && static_cast<size_t>(selected_agent) < env.get_agents().size()) {
         const AI& agent = env.get_agents()[static_cast<size_t>(selected_agent)];
         SDL_Rect highlight_rect = {
-            agent.pos.x * CELL_SIZE,
-            agent.pos.y * CELL_SIZE,
-            CELL_SIZE,
-            CELL_SIZE
+            agent.pos.x * cell_size,
+            agent.pos.y * cell_size,
+            cell_size,
+            cell_size
         };
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, 180);
         for (int i = 0; i < 3; ++i) {
@@ -209,17 +215,17 @@ void render_environment(SDL_Renderer* renderer, const Environment& env,
     // === Draw sidebar background ===
     SDL_SetRenderDrawColor(renderer, COLOR_SIDEBAR.r, COLOR_SIDEBAR.g, 
                           COLOR_SIDEBAR.b, COLOR_SIDEBAR.a);
-    SDL_Rect sidebar = {GRID_WIDTH, 0, SIDEBAR_WIDTH, SCREEN_HEIGHT};
+    SDL_Rect sidebar = {grid_pixel_width, 0, SIDEBAR_WIDTH, SCREEN_HEIGHT};
     SDL_RenderFillRect(renderer, &sidebar);
     
     // === Draw sidebar header ===
     SDL_SetRenderDrawColor(renderer, 60, 60, 80, 255);
-    SDL_Rect header = {GRID_WIDTH, 0, SIDEBAR_WIDTH, 60};
+    SDL_Rect header = {grid_pixel_width, 0, SIDEBAR_WIDTH, 60};
     SDL_RenderFillRect(renderer, &header);
     
     // === Header text ===
     render_text(renderer, large_font, "AI Simulation Stats", 
-                GRID_WIDTH + 10, 15, 
+                grid_pixel_width + 10, 15, 
                 {COLOR_HEADER.r, COLOR_HEADER.g, COLOR_HEADER.b, 255});
     
     // === Statistics text ===
@@ -229,19 +235,19 @@ void render_environment(SDL_Renderer* renderer, const Environment& env,
     std::stringstream ep_info;
     ep_info << "Episode: " << env.get_episode();
     render_text(renderer, regular_font, ep_info.str(), 
-                GRID_WIDTH + 10, 70, text_color);
+                grid_pixel_width + 10, 70, text_color);
     
     // Active agents
     std::stringstream agent_info;
-    agent_info << "Active Agents: " << env.get_alive_count() << "/" << AGENT_COUNT;
+    agent_info << "Active Agents: " << env.get_alive_count() << "/" << env.get_agent_count();
     render_text(renderer, regular_font, agent_info.str(), 
-                GRID_WIDTH + 10, 100, text_color);
+                grid_pixel_width + 10, 100, text_color);
     
     // Food count
     std::stringstream food_info;
-    food_info << "Food: " << env.get_food_list().size() << "/" << FOOD_COUNT;
+    food_info << "Food: " << env.get_food_list().size() << "/" << cfg.food_count;
     render_text(renderer, regular_font, food_info.str(), 
-                GRID_WIDTH + 10, 130, text_color);
+                grid_pixel_width + 10, 130, text_color);
     
     // Total food spawned
     std::stringstream total_food_info;
@@ -253,30 +259,30 @@ void render_environment(SDL_Renderer* renderer, const Environment& env,
     std::stringstream current_food_info;
     current_food_info << "Food This Episode: " << env.get_current_episode_food();
     render_text(renderer, regular_font, current_food_info.str(), 
-                GRID_WIDTH + 10, 190, text_color);
+                grid_pixel_width + 10, 190, text_color);
     
     // Average food per episode
     std::stringstream avg_food_info;
     avg_food_info << "Avg Food/Ep: " << std::fixed << std::setprecision(1) << env.get_avg_food_per_episode();
     render_text(renderer, regular_font, avg_food_info.str(), 
-                GRID_WIDTH + 10, 220, text_color);
+                grid_pixel_width + 10, 220, text_color);
     
     // Average exploration rate
     std::stringstream explore_info;
     explore_info << "Avg Epsilon: " << std::fixed << std::setprecision(3) << env.get_avg_exploration_rate();
     render_text(renderer, regular_font, explore_info.str(), 
-                GRID_WIDTH + 10, 250, text_color);
+                grid_pixel_width + 10, 250, text_color);
     
     // Time warp status
     std::stringstream warp_info;
     warp_info << "Time Warp: " << (time_warp_mode ? "ON" : "OFF") 
               << " (x" << time_warp_factor << ")";
     render_text(renderer, regular_font, warp_info.str(), 
-                GRID_WIDTH + 10, 280, text_color);
+                grid_pixel_width + 10, 280, text_color);
     
     // === Agent Statistics Section ===
     render_cached_text(renderer, regular_font, "Agent Statistics", 
-                GRID_WIDTH + 10, 310, 
+                grid_pixel_width + 10, 310, 
                 {COLOR_HEADER.r, COLOR_HEADER.g, COLOR_HEADER.b, 255});
     
     int agentY = 340;
@@ -288,7 +294,7 @@ void render_environment(SDL_Renderer* renderer, const Environment& env,
         // Agent background (dimmed if dead)
         SDL_SetRenderDrawColor(renderer, 60, 60, 80, 
                               agent.is_alive() ? 255 : 100);
-        SDL_Rect agent_rect = {GRID_WIDTH + 5, agentY, 
+        SDL_Rect agent_rect = {grid_pixel_width + 5, agentY, 
                                SIDEBAR_WIDTH - 10, 75};
         SDL_RenderFillRect(renderer, &agent_rect);
         
@@ -302,12 +308,12 @@ void render_environment(SDL_Renderer* renderer, const Environment& env,
             agent_color.b *= 0.5;
         }
         render_text(renderer, regular_font, name.str(), 
-                    GRID_WIDTH + 15, agentY + 5, agent_color);
+                    grid_pixel_width + 15, agentY + 5, agent_color);
         
         // Status (Active/Inactive)
         render_text(renderer, regular_font, 
                     agent.is_alive() ? "Active" : "Inactive", 
-                    GRID_WIDTH + SIDEBAR_WIDTH - 80, agentY + 5, 
+                    grid_pixel_width + SIDEBAR_WIDTH - 80, agentY + 5, 
                     agent.is_alive() ? SDL_Color{0, 200, 0, 255} 
                                       : SDL_Color{200, 0, 0, 255});
         
@@ -315,12 +321,12 @@ void render_environment(SDL_Renderer* renderer, const Environment& env,
         std::stringstream food_eaten;
         food_eaten << "Food: " << agent.total_food_eaten;
         render_text(renderer, regular_font, food_eaten.str(), 
-                    GRID_WIDTH + 15, agentY + 30, text_color);
+                    grid_pixel_width + 15, agentY + 30, text_color);
         
         // Energy bar
         render_text(renderer, regular_font, "Energy:", 
-                    GRID_WIDTH + 15, agentY + 50, text_color);
-        render_progress_bar(renderer, GRID_WIDTH + 80, agentY + 53, 
+                    grid_pixel_width + 15, agentY + 50, text_color);
+        render_progress_bar(renderer, grid_pixel_width + 80, agentY + 53, 
                             SIDEBAR_WIDTH - 100, 15, 
                             agent.get_energy_percentage(), 
                             COLOR_AGENT_ENERGY_BAR, COLOR_AGENT_ENERGY_BG);
@@ -330,31 +336,31 @@ void render_environment(SDL_Renderer* renderer, const Environment& env,
     
     // === Controls Section ===
     render_cached_text(renderer, regular_font, "Controls", 
-                GRID_WIDTH + 10, agentY + 10, 
+                grid_pixel_width + 10, agentY + 10, 
                 {COLOR_HEADER.r, COLOR_HEADER.g, COLOR_HEADER.b, 255});
     render_cached_text(renderer, regular_font, "ESC - Exit", 
-                GRID_WIDTH + 15, agentY + 40, text_color);
+                grid_pixel_width + 15, agentY + 40, text_color);
     render_cached_text(renderer, regular_font, "R - Reset", 
-                GRID_WIDTH + 15, agentY + 65, text_color);
+                grid_pixel_width + 15, agentY + 65, text_color);
     render_cached_text(renderer, regular_font, "Space - Pause/Resume", 
-                GRID_WIDTH + 15, agentY + 90, text_color);
+                grid_pixel_width + 15, agentY + 90, text_color);
     render_cached_text(renderer, regular_font, "W - Toggle Warp", 
-                GRID_WIDTH + 15, agentY + 115, text_color);
+                grid_pixel_width + 15, agentY + 115, text_color);
     render_cached_text(renderer, regular_font, "+/- - Warp Speed", 
-                GRID_WIDTH + 15, agentY + 140, text_color);
+                grid_pixel_width + 15, agentY + 140, text_color);
     render_cached_text(renderer, regular_font, "0 - Reset Warp", 
-                GRID_WIDTH + 15, agentY + 165, text_color);
+                grid_pixel_width + 15, agentY + 165, text_color);
     render_cached_text(renderer, regular_font, "D - Toggle Debug", 
-                GRID_WIDTH + 15, agentY + 190, text_color);
+                grid_pixel_width + 15, agentY + 190, text_color);
     render_cached_text(renderer, regular_font, "Click Agent - Debug Info", 
-                GRID_WIDTH + 15, agentY + 215, text_color);
+                grid_pixel_width + 15, agentY + 215, text_color);
     
     // === Debug Overlay ===
     if (debug_mode && selected_agent >= 0 && static_cast<size_t>(selected_agent) < env.get_agents().size()) {
         const AI& agent = env.get_agents()[static_cast<size_t>(selected_agent)];
         if (agent.is_alive()) {
             render_debug_overlay(renderer, agent, env.get_food_list(),
-                                   GRID_WIDTH + 15, agentY + 240, regular_font);
+                                   grid_pixel_width + 15, agentY + 240, regular_font);
         }
     }
 }

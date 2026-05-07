@@ -24,18 +24,19 @@ Environment::Environment(bool)
       total_food_spawned(0), simulation_running(true), 
       thread_pool(NUM_THREADS),
       env_gen(std::random_device{}()),
-      total_food_eaten_this_episode(0),
       avg_food_per_episode(0),
       episode_count_for_avg(0) {
     
+    RuntimeConfig& cfg = RuntimeConfig::instance();
+    
     // Create agents
-    agents.resize(AGENT_COUNT);
+    agents.resize(cfg.agent_count);
     
     // Spawn initial food
     spawn_food();
     
     // Initialize first episode stats
-    first_episode_food_stats.resize(AGENT_COUNT, 0);
+    first_episode_food_stats.resize(cfg.agent_count, 0);
 }
 
 // ============================================================================
@@ -44,17 +45,25 @@ Environment::Environment(bool)
 
 void Environment::spawn_food() {
     food_list.clear();
+    RuntimeConfig& cfg = RuntimeConfig::instance();
     
     // Random distribution for food energy
-    std::uniform_int_distribution<int> energy_dist(FOOD_ENERGY / 2, FOOD_ENERGY + FOOD_ENERGY / 2);
+    std::uniform_int_distribution<int> energy_dist(cfg.food_energy / 2, cfg.food_energy + cfg.food_energy / 2);
     
-    for (int i = 0; i < FOOD_COUNT; ++i) {
+    for (int i = 0; i < cfg.food_count; ++i) {
         Food f;
-        f.pos.x = env_gen() % GRID_SIZE;
-        f.pos.y = env_gen() % GRID_SIZE;
+        f.pos.x = env_gen() % cfg.grid_size;
+        f.pos.y = env_gen() % cfg.grid_size;
         f.energy_value = energy_dist(env_gen);
         food_list.push_back(f);
         total_food_spawned++;
+    }
+}
+
+void Environment::check_food_reset() {
+    RuntimeConfig& cfg = RuntimeConfig::instance();
+    if (static_cast<int>(food_list.size()) < cfg.food_reset_threshold) {
+        spawn_food();
     }
 }
 
@@ -104,13 +113,14 @@ void Environment::mutate_genome(std::vector<double>& genome, double mutation_rat
 
 void Environment::reset() {
     // Update average food per episode
+    int food_this_episode = total_food_eaten_this_episode.load();
     if (episode_count_for_avg > 0) {
-        avg_food_per_episode = (avg_food_per_episode * (episode_count_for_avg - 1) + total_food_eaten_this_episode) / episode_count_for_avg;
+        avg_food_per_episode = (avg_food_per_episode * (episode_count_for_avg - 1) + food_this_episode) / episode_count_for_avg;
     } else {
-        avg_food_per_episode = total_food_eaten_this_episode;
+        avg_food_per_episode = food_this_episode;
     }
     episode_count_for_avg++;
-    total_food_eaten_this_episode = 0;
+    total_food_eaten_this_episode.store(0);
     
     episode++;
     
@@ -243,6 +253,7 @@ void Environment::run_learning_step() {
             if (agent.energy <= 0) {
                 reward -= 20.0;
                 agent.energy = 1;  // Respawn energy
+                agent.total_food_eaten = 0;  // Reset food count on death
                 agent_done = false;  // Never actually done
             }
             
@@ -273,9 +284,7 @@ void Environment::run_learning_step() {
     }
     
     // === Replenish food if needed ===
-    if (food_list.empty() || food_list.size() < FOOD_COUNT / 2) {
-        spawn_food();
-    }
+    check_food_reset();
     
     // === Check if all agents are dead → run evolution ===
     bool all_dead = true;
@@ -324,7 +333,7 @@ double Environment::get_avg_food_per_episode() const {
 }
 
 int Environment::get_current_episode_food() const {
-    return static_cast<int>(total_food_eaten_this_episode);
+    return total_food_eaten_this_episode.load();
 }
 
 double Environment::get_avg_exploration_rate() const {

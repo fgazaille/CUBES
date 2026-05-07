@@ -114,10 +114,11 @@ Menu::~Menu() {
 
 void Menu::init_home_buttons() {
     home_buttons_.clear();
-    home_buttons_.push_back({{300, 180, 200, 45}, "Start Simulation", false});
-    home_buttons_.push_back({{300, 235, 200, 45}, "Training", false});
-    home_buttons_.push_back({{300, 290, 200, 45}, "About", false});
-    home_buttons_.push_back({{300, 345, 200, 45}, "Exit", false});
+    home_buttons_.push_back({{300, 160, 200, 45}, "Start Simulation", false});
+    home_buttons_.push_back({{300, 215, 200, 45}, "Training", false});
+    home_buttons_.push_back({{300, 270, 200, 45}, "Settings", false});
+    home_buttons_.push_back({{300, 325, 200, 45}, "About", false});
+    home_buttons_.push_back({{300, 380, 200, 45}, "Exit", false});
 }
 
 // ============================================================================
@@ -535,6 +536,8 @@ void Menu::activate_home_button(int index) {
         current_state_ = MenuState::START_SIM;
     } else if (text == "Training") {
         current_state_ = MenuState::TRAINING_SCREEN;
+    } else if (text == "Settings") {
+        current_state_ = MenuState::SETTINGS;
     } else if (text == "About") {
         current_state_ = MenuState::ABOUT;
     } else if (text == "Exit") {
@@ -555,7 +558,104 @@ void Menu::handle_home_click(int x, int y) {
     }
 }
 
+void Menu::render_settings() {
+    SDL_SetRenderDrawColor(renderer_, 14, 18, 30, 255);
+    SDL_RenderClear(renderer_);
+    
+    int title_x = center_text_x("Settings", title_font_);
+    render_text("Settings", title_x, 20, title_font_, {190, 190, 255, 255});
+    
+    SDL_SetRenderDrawColor(renderer_, 30, 34, 55, 255);
+    SDL_Rect panel = {140, 80, 520, 400};
+    SDL_RenderFillRect(renderer_, &panel);
+    SDL_SetRenderDrawColor(renderer_, 100, 100, 170, 255);
+    SDL_RenderDrawRect(renderer_, &panel);
+    
+    RuntimeConfig& cfg = RuntimeConfig::instance();
+    
+    // Grid Size
+    render_text("Grid Size:", 180, 120, text_font_, {220, 220, 240, 255});
+    SDL_Rect grid_field = {320, 115, 160, 36};
+    render_field(grid_field, EditField::GRID_SIZE, std::to_string(cfg.grid_size));
+    
+    // Agent Count
+    render_text("Number of Agents:", 180, 180, text_font_, {220, 220, 240, 255});
+    SDL_Rect agent_field = {320, 175, 160, 36};
+    render_field(agent_field, EditField::AGENTS, std::to_string(cfg.agent_count));
+    
+    // Food Count
+    render_text("Food Count:", 180, 240, text_font_, {220, 220, 240, 255});
+    SDL_Rect food_field = {320, 235, 160, 36};
+    render_field(food_field, EditField::FOOD_COUNT, std::to_string(cfg.food_count));
+    
+    // Food Reset Threshold
+    render_text("Food Reset Threshold:", 180, 300, text_font_, {220, 220, 240, 255});
+    SDL_Rect thresh_field = {320, 295, 160, 36};
+    render_field(thresh_field, EditField::FOOD_THRESHOLD, std::to_string(cfg.food_reset_threshold));
+    
+    // Back button
+    int back_x = center_x(100);
+    SDL_Rect back_rect = {back_x, 500, 100, 40};
+    SDL_SetRenderDrawColor(renderer_, 60, 60, 80, 255);
+    SDL_RenderFillRect(renderer_, &back_rect);
+    SDL_SetRenderDrawColor(renderer_, 100, 100, 170, 255);
+    SDL_RenderDrawRect(renderer_, &back_rect);
+    render_text("Back", back_x + 25, 510, text_font_, {220, 220, 240, 255});
+    
+    SDL_RenderPresent(renderer_);
+}
+
+void Menu::render_field(const SDL_Rect& field, EditField field_type, const std::string& display) {
+    if (editing_field_ == field_type) {
+        SDL_SetRenderDrawColor(renderer_, 100, 100, 200, 255);
+    } else {
+        SDL_SetRenderDrawColor(renderer_, 60, 60, 80, 255);
+    }
+    SDL_RenderFillRect(renderer_, &field);
+    SDL_SetRenderDrawColor(renderer_, 140, 140, 200, 255);
+    SDL_RenderDrawRect(renderer_, &field);
+    std::string text = (editing_field_ == field_type) ? input_buffer_ + "_" : display;
+    render_text(text, field.x + 10, field.y + 5, text_font_, {255, 255, 255, 255});
+}
+
 void Menu::handle_settings_click(int x, int y) {
+    RuntimeConfig& cfg = RuntimeConfig::instance();
+    
+    // Grid Size field
+    if (x >= 320 && x <= 480 && y >= 115 && y <= 151) {
+        editing_field_ = EditField::GRID_SIZE;
+        input_buffer_ = std::to_string(cfg.grid_size);
+        SDL_StartTextInput();
+        return;
+    }
+    // Agent Count field
+    if (x >= 320 && x <= 480 && y >= 175 && y <= 211) {
+        editing_field_ = EditField::AGENTS;
+        input_buffer_ = std::to_string(cfg.agent_count);
+        SDL_StartTextInput();
+        return;
+    }
+    // Food Count field
+    if (x >= 320 && x <= 480 && y >= 235 && y <= 271) {
+        editing_field_ = EditField::FOOD_COUNT;
+        input_buffer_ = std::to_string(cfg.food_count);
+        SDL_StartTextInput();
+        return;
+    }
+    // Food Reset Threshold field
+    if (x >= 320 && x <= 480 && y >= 295 && y <= 331) {
+        editing_field_ = EditField::FOOD_THRESHOLD;
+        input_buffer_ = std::to_string(cfg.food_reset_threshold);
+        SDL_StartTextInput();
+        return;
+    }
+    
+    if (editing_field_ != EditField::NONE) {
+        apply_edits();
+        editing_field_ = EditField::NONE;
+        SDL_StopTextInput();
+    }
+    
     int back_x = center_x(100);
     SDL_Rect back_rect = {back_x, 500, 100, 40};
     if (x >= back_rect.x && x <= back_rect.x + back_rect.w &&
@@ -565,6 +665,7 @@ void Menu::handle_settings_click(int x, int y) {
 }
 
 void Menu::apply_edits() {
+    RuntimeConfig& cfg = RuntimeConfig::instance();
     if (editing_field_ == EditField::EPISODES) {
         try {
             int val = std::stoi(input_buffer_);
@@ -574,6 +675,26 @@ void Menu::apply_edits() {
         try {
             int val = std::stoi(input_buffer_);
             training_config_.threads = std::max(1, std::min(16, val));
+        } catch (...) { /* invalid input, keep current */ }
+    } else if (editing_field_ == EditField::AGENTS) {
+        try {
+            int val = std::stoi(input_buffer_);
+            cfg.agent_count = std::max(1, std::min(50, val));
+        } catch (...) { /* invalid input, keep current */ }
+    } else if (editing_field_ == EditField::FOOD_COUNT) {
+        try {
+            int val = std::stoi(input_buffer_);
+            cfg.food_count = std::max(1, std::min(200, val));
+        } catch (...) { /* invalid input, keep current */ }
+    } else if (editing_field_ == EditField::GRID_SIZE) {
+        try {
+            int val = std::stoi(input_buffer_);
+            cfg.grid_size = std::max(5, std::min(30, val));
+        } catch (...) { /* invalid input, keep current */ }
+    } else if (editing_field_ == EditField::FOOD_THRESHOLD) {
+        try {
+            int val = std::stoi(input_buffer_);
+            cfg.food_reset_threshold = std::max(1, std::min(100, val));
         } catch (...) { /* invalid input, keep current */ }
     }
 }
@@ -670,6 +791,8 @@ MenuState Menu::run() {
             render_home();
         } else if (current_state_ == MenuState::TRAINING_SCREEN) {
             render_training();
+        } else if (current_state_ == MenuState::SETTINGS) {
+            render_settings();
         } else if (current_state_ == MenuState::ABOUT) {
             render_about();
         } else if (current_state_ == MenuState::TRAINING_ACTIVE) {

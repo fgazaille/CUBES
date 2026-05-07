@@ -17,13 +17,14 @@
 # Compiler and flags
 CXX = g++
 CXXFLAGS = -std=c++17 \
-            -Wall \
-            -Wextra \
-            -I/usr/local/include/SDL2 \
-            -Iinclude \
-            -Iinclude/core \
-            -Iinclude/rendering \
-            -Iinclude/menu
+             -Wall \
+             -Wextra \
+             -I/usr/local/include/SDL2 \
+             -Iinclude \
+             -Iinclude/core \
+             -Iinclude/rendering \
+             -Iinclude/menu \
+             -Ithird_party
 
 LDFLAGS = -L/usr/local/lib \
           -lSDL2 \
