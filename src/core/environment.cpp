@@ -72,15 +72,28 @@ void Environment::check_food_reset() {
 // ============================================================================
 
 std::vector<AI> Environment::select_parents(int num_parents) {
-    // Sort agents by performance (food eaten)
-    std::vector<AI> sorted_agents = agents;
-    std::sort(sorted_agents.begin(), sorted_agents.end(), 
-              [](const AI& a, const AI& b) {
-                  return a.total_food_eaten > b.total_food_eaten;
-              });
+    // Tournament selection: pick random agents, the best one becomes a parent
+    // This maintains diversity better than truncation selection
+    std::vector<AI> selected;
+    std::uniform_int_distribution<size_t> dist(0, agents.size() - 1);
     
-    // Return top performers
-    return std::vector<AI>(sorted_agents.begin(), sorted_agents.begin() + num_parents);
+    for (int p = 0; p < num_parents; ++p) {
+        size_t best_idx = dist(env_gen);
+        int best_food = agents[best_idx].total_food_eaten;
+        
+        // Tournament of 3 random agents
+        for (int t = 0; t < 3; ++t) {
+            size_t candidate = dist(env_gen);
+            if (agents[candidate].total_food_eaten > best_food) {
+                best_food = agents[candidate].total_food_eaten;
+                best_idx = candidate;
+            }
+        }
+        
+        selected.push_back(agents[best_idx]);
+    }
+    
+    return selected;
 }
 
 std::vector<double> Environment::crossover(const std::vector<double>& parent1, 
@@ -98,11 +111,11 @@ std::vector<double> Environment::crossover(const std::vector<double>& parent1,
 
 void Environment::mutate_genome(std::vector<double>& genome, double mutation_rate) {
     std::uniform_real_distribution<double> dis(0.0, 1.0);
-    std::uniform_real_distribution<double> dist(-0.1, 0.1);
+    std::uniform_real_distribution<double> dist(-0.2, 0.2);
     
     for (auto& gene : genome) {
         if (dis(env_gen) < mutation_rate) {
-            gene += dist(env_gen);  // Small random change
+            gene += dist(env_gen);
         }
     }
 }
@@ -125,14 +138,18 @@ void Environment::reset() {
     episode++;
     
     // === Genetic Algorithm: Create new generation ===
-    int num_parents = std::max(2, static_cast<int>(agents.size()) / 2);
+    int num_parents = std::max(2, static_cast<int>(agents.size() * 0.6));
     std::vector<AI> parents = select_parents(num_parents);
     
     std::vector<AI> new_agents;
     
-    // Keep top 50% elites unchanged (high elitism to preserve good solutions)
-    int num_elites = std::max(2, static_cast<int>(parents.size() * 0.5));
-    for (int i = 0; i < num_elites; ++i) {
+    // Keep top 1-2 elites unchanged (low elitism to maintain diversity)
+    int num_elites = std::max(1, static_cast<int>(parents.size() * 0.1));
+    // Only preserve truly exceptional agents (top performer)
+    if (episode > 5 && parents[0].total_food_eaten > parents.back().total_food_eaten * 1.5) {
+        num_elites = 1;
+    }
+    for (int i = 0; i < num_elites && i < static_cast<int>(parents.size()); ++i) {
         new_agents.push_back(parents[i]);
     }
     
@@ -147,8 +164,8 @@ void Environment::reset() {
         std::vector<double> parent2_genome = parents[p2].get_neural_network()->get_genome();
         std::vector<double> child_genome = crossover(parent1_genome, parent2_genome);
         
-        // 0.1% mutation rate to preserve learned behaviors
-        mutate_genome(child_genome, 0.001);
+        // Higher mutation rate for better exploration (1%)
+        mutate_genome(child_genome, 0.01);
         
         AI child(child_genome);
         child.energy = MAX_ENERGY;
@@ -168,8 +185,7 @@ void Environment::reset() {
         if (best_file.good()) {
             try {
                 agents[0].load_brain_from_file(brain_file_path());
-                std::cout << "Preserved best brain in generation " << episode << "\n";
-            } catch (...) { /* ignore */ }
+            } catch (...) { }
         }
     }
     
@@ -215,7 +231,7 @@ void Environment::run_learning_step() {
             for (size_t k = 0; k < local_food.size(); ++k) {
                 if (agent.pos.x == local_food[k].pos.x && agent.pos.y == local_food[k].pos.y) {
                     int food_value = local_food[k].energy_value;
-                    reward += 20.0;  // Big reward for eating
+                    reward += 5.0 + 0.1 * food_value;  // Scaled reward for eating
                     agent.energy += food_value;
                     if (agent.energy > MAX_ENERGY) agent.energy = MAX_ENERGY;
                     agent.total_food_eaten++;
@@ -236,25 +252,22 @@ void Environment::run_learning_step() {
             // Reward moving toward food and penalize moving away.
             auto next_closest_food = agent.find_closest_food(local_food);
             double next_distance = next_closest_food.has_value() ? agent.pos.distance(next_closest_food.value()) : prev_distance;
-            reward += (prev_distance - next_distance) * 0.5;  // Stronger signal
-            if (next_closest_food.has_value() && next_distance > prev_distance) {
-                reward -= 0.5;  // Stronger penalty for moving away
-            }
+            double distance_change = prev_distance - next_distance;
+            reward += distance_change * 0.3;
             
             // Small penalty per step (encourages efficiency)
-            reward -= 0.05;
+            reward -= 0.1;
             
-            // Penalty for bumping into walls (stronger)
+            // Penalty for bumping into walls (teaches boundary awareness)
             if (prev_pos == agent.pos) {
-                reward -= 1.0;
+                reward -= 0.5;
             }
             
             // Handle death when energy depleted
             if (agent.energy <= 0) {
-                agent.energy = 0;  // Ensure energy is 0
-                reward -= 20.0;
-                // Note: total_food_eaten is NOT reset - we need it for parent selection
-                agent_done = true;  // Agent is actually done
+                agent.energy = 0;
+                reward -= 5.0;
+                agent_done = true;
             }
             
             // === Store experience ===

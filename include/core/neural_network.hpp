@@ -26,7 +26,8 @@
  * - Biases vector (output_size)
  * - Cached last output for backpropagation
  * 
- * Uses ReLU activation: f(x) = max(0, x)
+ * Uses ReLU activation for hidden layers: f(x) = max(0, x)
+ * Output layer uses linear activation (no ReLU) so Q-values can be negative.
  */
 class Layer {
 private:
@@ -35,6 +36,15 @@ private:
     std::vector<std::vector<double>> weights; ///< Weight matrix [output][input]
     std::vector<double> biases;               ///< Bias vector [output]
     std::vector<double> last_output;          ///< Cached output from last forward pass
+    bool use_relu;                            ///< Whether to apply ReLU activation
+    std::vector<double> last_input;           ///< Cached input from last forward pass
+
+    // Adam optimizer state
+    std::vector<std::vector<double>> m_weights; ///< First moment for weights
+    std::vector<double> m_biases;               ///< First moment for biases
+    std::vector<std::vector<double>> v_weights; ///< Second moment for weights
+    std::vector<double> v_biases;               ///< Second moment for biases
+    int adam_t;                                 ///< Adam timestep counter
 
 public:
     /**
@@ -44,8 +54,9 @@ public:
      * @param output_size Number of neurons in this layer
      * @param gen Random number generator (must be initialized by caller)
      * @param dis Uniform distribution for bias initialization
+     * @param use_relu Whether to apply ReLU activation (false for output layer)
      */
-    Layer(int input_size, int output_size, std::mt19937& gen, std::uniform_real_distribution<double>& dis);
+    Layer(int input_size, int output_size, std::mt19937& gen, bool use_relu = true);
 
     /**
      * @brief ReLU activation function.
@@ -162,7 +173,7 @@ public:
      * @param gen Random number generator
      * @param dis Distribution for initialization
      */
-    NeuralNetwork(const std::vector<int>& layer_sizes, std::mt19937& gen, std::uniform_real_distribution<double>& dis);
+    NeuralNetwork(const std::vector<int>& layer_sizes, std::mt19937& gen);
 
     /**
      * @brief Forward pass through the entire network.
