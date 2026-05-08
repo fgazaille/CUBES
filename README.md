@@ -7,10 +7,11 @@ A C++ reinforcement learning simulation where AI agents learn to navigate a grid
 - **Neural Network AI**: Agents use feedforward neural networks (64/32 hidden neurons) with ReLU activation
 - **Reinforcement Learning**: DQN with experience replay (100K buffer), target networks, and adaptive learning rates
 - **Monotonic Improvement**: Agents never die (energy ≥ 1), preventing oscillation between generations
-- **Best Brain Preservation**: Automatically saves `./build/brain.json` when improvement detected
-- **Real-time Visualization**: SDL2-based renderer with grid, agents, and statistics
-- **Multi-threaded Training**: Parallel processing with progress tracking to `training_progress.txt`
-- **Smart Resource Management**: RAII smart pointers and cached textures for performance
+- **Best Brain Preservation**: Automatically saves `assets/brain.json` when improvement detected
+- **Real-time Visualization**: Raylib-based renderer with resizable window, grid, agents, and statistics
+- **Multi-threaded Training**: Parallel processing with progress tracking
+- **Resizable Window**: Dynamic layout adapts to any window size
+- **Modern UI**: Dark theme with smooth animations and raygui-based menus
 
 ## Building
 
@@ -18,26 +19,26 @@ A C++ reinforcement learning simulation where AI agents learn to navigate a grid
 
 **macOS:**
 ```bash
-brew install sdl2 sdl2_image sdl2_ttf sdl2_mixer cmake
+brew install raylib
 ```
 
 **Linux:**
 ```bash
-sudo apt install libsdl2-dev libsdl2-image-dev libsdl2-ttf-dev libsdl2-mixer-dev cmake g++
+sudo apt install libraylib-dev cmake g++
 ```
 
 ### Compilation
 
 ```bash
-cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-make -j8
+make -j$(nproc)
 ```
 
-### Installation
+or with CMake:
 
 ```bash
-sudo make install  # Installs to /usr/local/bin/simulation
+mkdir -p build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc)
 ```
 
 ## Usage
@@ -53,10 +54,10 @@ sudo make install  # Installs to /usr/local/bin/simulation
 From the menu, select "Training" to start parallel training:
 - **Episodes**: Number of training cycles (1000-100000)
 - **Threads**: Parallel training threads (1-16)
-- **Auto-save**: Automatically saves best brain to `./build/brain.json`
-- **Load Brain**: Start from existing `./build/brain.json` if available
+- **Auto-save**: Automatically saves best brain to `assets/brain.json`
+- **Load Brain**: Start from existing `assets/brain.json` if available
 
-Training progress is saved to `training_progress.txt` and summary to `training_summary.txt`.
+Training progress is saved to `training_progress.txt`.
 
 Press **Ctrl+C** to stop training early.
 
@@ -67,10 +68,8 @@ Press **Ctrl+C** to stop training early.
 - **SPACE**: Pause/Resume (or step in debug mode)
 - **R**: Reset simulation
 - **D**: Toggle debug mode (click agents to inspect)
-- **S**: Save brain of first alive agent to `./build/brain.json`
-- **L**: Load brain for all agents from `./build/brain.json`
-- **F5**: Save full simulation state
-- **F9**: Load full simulation state
+- **S**: Save brain of first alive agent to `assets/brain.json`
+- **L**: Load brain for all agents from `assets/brain.json`
 - **+/-**: Adjust time warp speed
 - **0**: Reset time warp to 1x
 - **W**: Toggle time warp mode
@@ -105,38 +104,27 @@ Edit `include/core/config.hpp` to adjust:
 CUBES/
 ├── include/
 │   ├── core/           # Neural network, AI agent, environment
-│   ├── rendering/      # SDL utilities, renderer
-│   └── menu/           # Menu system
+│   ├── rendering/      # Raylib renderer
+│   └── menu/           # Menu system (raygui)
 ├── src/
 │   ├── core/           # Implementation of core modules
 │   ├── rendering/      # Rendering implementation
 │   └── menu/           # Menu implementation
-├── third_party/        # Third-party headers (json.hpp, BS_thread_pool.hpp)
+├── third_party/        # Third-party headers (json.hpp, BS_thread_pool.hpp, raygui.h)
 ├── assets/             # Textures (Player.png, Food.png) and fonts
 ├── tests/              # Unit tests (test_neural_network.cpp)
-├── build/              # Build directory (gitignored)
-├── build/brain.json    # Brain data (auto-generated)
-├── build/brain.json    # Brain data (auto-generated)
+├── docs/               # Documentation and known issues
 ├── training_progress.txt # Training progress log
 └── training_summary.txt  # Training summary
 ```
 
-## Documentation
+## Version 2.0 Changes
 
-To generate Doxygen documentation:
-```bash
-doxygen Doxyfile
-```
-
-## Recent Improvements
-
-- **Fixed oscillation**: Agents never die, brains preserved across resets
-- **Increased network size**: 64/32 hidden neurons for better learning
-- **Adaptive learning rate**: Higher when exploiting, lower when exploring
-- **Stronger rewards**: +20 for food, -20 for "death" (now prevented)
-- **Text caching**: SDL text rendering optimization
-- **Training progress**: Real-time progress tracking and summary
-- **Signal handling**: Ctrl+C stops training gracefully
+- **Migrated from SDL2 to Raylib**: Cleaner API, simpler build, modern rendering
+- **Resizable window**: Dynamic layout adapts to any size
+- **Modern UI**: Raygui-based menus with dark theme
+- **Improved visuals**: Rounded corners, smooth animations, cleaner agent rendering
+- **Fixed brain save path**: Now uses `assets/brain.json` consistently
 
 ## License
 

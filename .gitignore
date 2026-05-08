@@ -28,3 +28,8 @@ docs/latex/
 *.tmp
 *.log
 session-*.md
+test_nn
+
+# Generated runtime files
+training_progress.txt
+training_summary.txt

@@ -154,10 +154,10 @@ void Environment::reset() {
     
     // Preserve best brain across generations
     {
-        std::ifstream best_file("./build/brain.json");
+        std::ifstream best_file(brain_file_path());
         if (best_file.good()) {
             try {
-                agents[0].load_brain_from_file("./build/brain.json");
+                agents[0].load_brain_from_file(brain_file_path());
                 std::cout << "Preserved best brain in generation " << episode << "\n";
             } catch (...) { /* ignore */ }
         }

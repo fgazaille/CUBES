@@ -10,7 +10,6 @@
  */
 
 #include "ai_agent.hpp"
-#include <SDL2/SDL.h>
 #include <random>
 #include <cmath>
 #include <iostream>

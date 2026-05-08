@@ -1,425 +1,279 @@
-/**
- * @file renderer.cpp
- * @brief Implementation of main simulation rendering.
- * 
- * Renders the grid, agents, food, and sidebar with statistics.
- */
-
 #include "renderer.hpp"
 #include <sstream>
 #include <iomanip>
-#include <unordered_map>
-
-// ============================================================================
-// Text Cache Implementation
-// ============================================================================
+#include <cmath>
 
 namespace {
-    struct TextCacheKey {
-        std::string text;
-        SDL_Color color;
-        
-        bool operator==(const TextCacheKey& other) const {
-            return text == other.text && 
-                   color.r == other.color.r && color.g == other.color.g &&
-                   color.b == other.color.b && color.a == other.color.a;
-        }
-    };
-    
-    struct TextCacheKeyHash {
-        std::size_t operator()(const TextCacheKey& k) const {
-            return std::hash<std::string>{}(k.text) ^ 
-                   (k.color.r << 24 | k.color.g << 16 | k.color.b << 8 | k.color.a);
-        }
-    };
-    
-    std::unordered_map<TextCacheKey, CachedText, TextCacheKeyHash> text_cache;
-    TTF_Font* last_font = nullptr;
-}
+    Texture2D agent_tex{};
+    Texture2D food_tex{};
+    Font game_font{};
+    bool resources_loaded = false;
 
-void clear_text_cache() {
-    for (auto& pair : text_cache) {
-        if (pair.second.texture) {
-            SDL_DestroyTexture(pair.second.texture);
-        }
+    void draw_rounded_rect(int x, int y, int w, int h, int /*radius*/, Color color) {
+        DrawRectangleRounded({(float)x, (float)y, (float)w, (float)h}, 0.15f, 8, color);
     }
-    text_cache.clear();
-    last_font = nullptr;
 }
 
-void render_cached_text(SDL_Renderer* renderer, TTF_Font* font, 
-                        const std::string& text, int x, int y, SDL_Color color) {
-    if (!font || !renderer) return;
-    
-    // Invalidate cache if font changed
-    if (font != last_font) {
-        clear_text_cache();
-        last_font = font;
+void init_renderer(const std::string& asset_path) {
+    Image player_img = LoadImage((asset_path + "Player.png").c_str());
+    Image food_img   = LoadImage((asset_path + "Food.png").c_str());
+
+    if (player_img.data) ImageResize(&player_img, CELL_SIZE, CELL_SIZE);
+    if (food_img.data)   ImageResize(&food_img,   CELL_SIZE, CELL_SIZE);
+
+    agent_tex = LoadTextureFromImage(player_img);
+    food_tex  = LoadTextureFromImage(food_img);
+    if (player_img.data) UnloadImage(player_img);
+    if (food_img.data)   UnloadImage(food_img);
+
+    game_font = LoadFont((asset_path + "Futura.ttf").c_str());
+    if (game_font.texture.id == 0) {
+        game_font = GetFontDefault();
     }
-    
-    TextCacheKey key{text, color};
-    auto it = text_cache.find(key);
-    
-    if (it == text_cache.end()) {
-        // Create new texture
-        SDL_Surface* surface = TTF_RenderText_Blended(font, text.c_str(), color);
-        if (!surface) return;
-        
-        SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
-        if (!texture) {
-            SDL_FreeSurface(surface);
-            return;
-        }
-        
-        CachedText cached{texture, surface->w, surface->h};
-        SDL_FreeSurface(surface);
-        
-        it = text_cache.emplace(key, cached).first;
+
+    SetTextureFilter(agent_tex, TEXTURE_FILTER_BILINEAR);
+    SetTextureFilter(food_tex, TEXTURE_FILTER_BILINEAR);
+
+    resources_loaded = true;
+}
+
+void close_renderer() {
+    if (resources_loaded) {
+        if (agent_tex.id > 0) UnloadTexture(agent_tex);
+        if (food_tex.id > 0)  UnloadTexture(food_tex);
+        if (game_font.texture.id > 0 &&
+            game_font.texture.id != GetFontDefault().texture.id)
+            UnloadFont(game_font);
+        resources_loaded = false;
     }
-    
-    // Render cached texture
-    const CachedText& cached = it->second;
-    SDL_Rect rect = {x, y, cached.width, cached.height};
-    SDL_RenderCopy(renderer, cached.texture, NULL, &rect);
 }
 
-// ============================================================================
-// Original Text Rendering (for dynamic text)
-// ============================================================================
+static void draw_text(const std::string& text, int x, int y, int size, Color color) {
+    DrawTextEx(game_font, text.c_str(), {(float)x, (float)y}, (float)size, 1, color);
+}
 
-void render_text(SDL_Renderer* renderer, TTF_Font* font, 
-                const std::string& text, int x, int y, SDL_Color color) {
-    if (!font || !renderer) return;
-    
-    // Render text to surface
-    SDL_Surface* surface = TTF_RenderText_Blended(font, text.c_str(), color);
-    if (!surface) return;
-    
-    // Convert to texture for rendering
-    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
-    if (!texture) {
-        SDL_FreeSurface(surface);
-        return;
+void render_progress_bar(int x, int y, int w, int h,
+                         float percentage, Color fill, Color bg) {
+    draw_rounded_rect(x, y, w, h, 6, bg);
+    if (percentage > 0) {
+        int fw = (int)(w * std::max(0.0f, std::min(1.0f, percentage)));
+        draw_rounded_rect(x, y, fw, h, 6, fill);
     }
-    
-    // Draw texture at specified position
-    SDL_Rect rect = {x, y, surface->w, surface->h};
-    SDL_RenderCopy(renderer, texture, NULL, &rect);
-    
-    // Cleanup
-    SDL_FreeSurface(surface);
-    SDL_DestroyTexture(texture);
+    DrawRectangleLines(x, y, w, h, UI::TEXT_DIM);
 }
 
-// ============================================================================
-// Progress Bar Rendering
-// ============================================================================
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
-void render_progress_bar(SDL_Renderer* renderer, int x, int y, int w, int h,
-                        float percentage, const Color& fill, const Color& bg) {
-    // Draw background
-    SDL_SetRenderDrawColor(renderer, bg.r, bg.g, bg.b, bg.a);
-    SDL_Rect bg_rect = {x, y, w, h};
-    SDL_RenderFillRect(renderer, &bg_rect);
-    
-    // Draw fill (clamped to 0-1)
-    int fill_w = static_cast<int>(w * std::max(0.0f, std::min(1.0f, percentage)));
-    SDL_SetRenderDrawColor(renderer, fill.r, fill.g, fill.b, fill.a);
-    SDL_Rect fill_rect = {x, y, fill_w, h};
-    SDL_RenderFillRect(renderer, &fill_rect);
-    
-    // Draw border
-    SDL_SetRenderDrawColor(renderer, COLOR_TEXT.r, COLOR_TEXT.g, COLOR_TEXT.b, COLOR_TEXT.a);
-    SDL_RenderDrawRect(renderer, &bg_rect);
+static void render_agent_energy_bar(int x, int y, int w, int h, float pct) {
+    DrawRectangle(x, y, w, h, UI::ENERGY_BG);
+    DrawRectangle(x, y, (int)(w * pct), h, UI::ENERGY_BAR);
 }
 
-// ============================================================================
-// Main Environment Rendering
-// ============================================================================
+static void render_sidebar_header(int y, const std::string& text) {
+    draw_text(text, GRID_WIDTH + 15, y, 18, UI::ACCENT);
+}
 
-void render_environment(SDL_Renderer* renderer, const Environment& env,
-                        SDL_Texture* agent_tex, SDL_Texture* food_tex,
-                        TTF_Font* large_font, TTF_Font* regular_font,
+// ── Main render ──────────────────────────────────────────────────────────────
+
+void render_environment(const Environment& env,
                         bool time_warp_mode, double time_warp_factor,
                         bool debug_mode, int selected_agent) {
-    
-    // === Clear screen with background color ===
-    SDL_SetRenderDrawColor(renderer, COLOR_BACKGROUND.r, COLOR_BACKGROUND.g, 
-                          COLOR_BACKGROUND.b, COLOR_BACKGROUND.a);
-    SDL_RenderClear(renderer);
-    
-    // === Draw grid background ===
-    SDL_SetRenderDrawColor(renderer, 30, 30, 40, 255);
-    SDL_Rect grid_rect = {0, 0, GRID_WIDTH, GRID_HEIGHT};
-    SDL_RenderFillRect(renderer, &grid_rect);
-    
-    // === Draw grid lines ===
-    SDL_SetRenderDrawColor(renderer, COLOR_GRID.r, COLOR_GRID.g, 
-                          COLOR_GRID.b, COLOR_GRID.a);
+
+    ClearBackground(UI::BACKGROUND);
+
+    // ── Grid ────────────────────────────────────────────────────────────────
+    DrawRectangle(0, 0, GRID_WIDTH, GRID_HEIGHT, UI::GRID_BG);
+
     for (int i = 0; i <= GRID_SIZE; ++i) {
-        SDL_RenderDrawLine(renderer, i * CELL_SIZE, 0, 
-                          i * CELL_SIZE, GRID_HEIGHT);
-        SDL_RenderDrawLine(renderer, 0, i * CELL_SIZE, 
-                          GRID_WIDTH, i * CELL_SIZE);
-    }
-    
-    // === Draw food items ===
-    for (const auto& food : env.get_food_list()) {
-        SDL_Rect food_rect = {
-            food.pos.x * CELL_SIZE, 
-            food.pos.y * CELL_SIZE, 
-            CELL_SIZE, 
-            CELL_SIZE
-        };
-        SDL_RenderCopy(renderer, food_tex, NULL, &food_rect);
-    }
-    
-    // === Draw agents ===
-    for (const auto& agent : env.get_agents()) {
-        if (agent.is_alive()) {
-            SDL_Rect agent_rect = {
-                agent.pos.x * CELL_SIZE, 
-                agent.pos.y * CELL_SIZE, 
-                CELL_SIZE, 
-                CELL_SIZE
-            };
-            // Apply agent's unique color to texture
-            SDL_SetTextureColorMod(agent_tex, agent.color.r, 
-                                  agent.color.g, agent.color.b);
-            SDL_RenderCopy(renderer, agent_tex, NULL, &agent_rect);
-        }
+        int x = i * CELL_SIZE;
+        DrawLine(x, 0, x, GRID_HEIGHT, UI::GRID_LINE);
+        DrawLine(0, x, GRID_WIDTH, x, UI::GRID_LINE);
     }
 
-    // Highlight selected agent in debug mode
-    if (debug_mode && selected_agent >= 0 && static_cast<size_t>(selected_agent) < env.get_agents().size()) {
-        const AI& agent = env.get_agents()[static_cast<size_t>(selected_agent)];
-        SDL_Rect highlight_rect = {
-            agent.pos.x * CELL_SIZE,
-            agent.pos.y * CELL_SIZE,
-            CELL_SIZE,
-            CELL_SIZE
-        };
-        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 180);
-        for (int i = 0; i < 3; ++i) {
-            SDL_Rect frame = {highlight_rect.x - i, highlight_rect.y - i, highlight_rect.w + 2*i, highlight_rect.h + 2*i};
-            SDL_RenderDrawRect(renderer, &frame);
-        }
+    // ── Food ────────────────────────────────────────────────────────────────
+    for (const auto& food : env.get_food_list()) {
+        int fx = food.pos.x * CELL_SIZE;
+        int fy = food.pos.y * CELL_SIZE;
+        float pulse = 0.80f + 0.20f * std::sin(GetTime() * 3.0f + food.pos.x * 7.0f + food.pos.y * 13.0f);
+        int pad = (int)(CELL_SIZE * (1.0f - 0.7f * pulse) / 2.0f);
+        int side = CELL_SIZE - pad * 2;
+        DrawRectangle(fx + pad, fy + pad, side, side, UI::FOOD_COLOUR);
     }
-    
-    // === Draw sidebar background ===
-    SDL_SetRenderDrawColor(renderer, COLOR_SIDEBAR.r, COLOR_SIDEBAR.g, 
-                          COLOR_SIDEBAR.b, COLOR_SIDEBAR.a);
-    SDL_Rect sidebar = {GRID_WIDTH, 0, SIDEBAR_WIDTH, SCREEN_HEIGHT};
-    SDL_RenderFillRect(renderer, &sidebar);
-    
-    // === Draw sidebar header ===
-    SDL_SetRenderDrawColor(renderer, 60, 60, 80, 255);
-    SDL_Rect header = {GRID_WIDTH, 0, SIDEBAR_WIDTH, 60};
-    SDL_RenderFillRect(renderer, &header);
-    
-    // === Header text ===
-    render_text(renderer, large_font, "AI Simulation Stats", 
-                GRID_WIDTH + 10, 15, 
-                {COLOR_HEADER.r, COLOR_HEADER.g, COLOR_HEADER.b, 255});
-    
-    // === Statistics text ===
-    SDL_Color text_color = {COLOR_TEXT.r, COLOR_TEXT.g, COLOR_TEXT.b, 255};
-    
-    // Episode counter
-    std::stringstream ep_info;
-    ep_info << "Episode: " << env.get_episode();
-    render_text(renderer, regular_font, ep_info.str(), 
-                GRID_WIDTH + 10, 70, text_color);
-    
-    // Active agents
-    std::stringstream agent_info;
-    agent_info << "Active Agents: " << env.get_alive_count() << "/" << AGENT_COUNT;
-    render_text(renderer, regular_font, agent_info.str(), 
-                GRID_WIDTH + 10, 100, text_color);
-    
-    // Food count
-    std::stringstream food_info;
-    food_info << "Food: " << env.get_food_list().size() << "/" << FOOD_COUNT;
-    render_text(renderer, regular_font, food_info.str(), 
-                GRID_WIDTH + 10, 130, text_color);
-    
-    // Total food spawned
-    std::stringstream total_food_info;
-    total_food_info << "Total Food Spawned: " << env.get_total_food_spawned();
-    render_text(renderer, regular_font, total_food_info.str(), 
-                GRID_WIDTH + 10, 160, text_color);
-    
-    // Food eaten this episode
-    std::stringstream current_food_info;
-    current_food_info << "Food This Episode: " << env.get_current_episode_food();
-    render_text(renderer, regular_font, current_food_info.str(), 
-                GRID_WIDTH + 10, 190, text_color);
-    
-    // Average food per episode
-    std::stringstream avg_food_info;
-    avg_food_info << "Avg Food/Ep: " << std::fixed << std::setprecision(1) << env.get_avg_food_per_episode();
-    render_text(renderer, regular_font, avg_food_info.str(), 
-                GRID_WIDTH + 10, 220, text_color);
-    
-    // Average exploration rate
-    std::stringstream explore_info;
-    explore_info << "Avg Epsilon: " << std::fixed << std::setprecision(3) << env.get_avg_exploration_rate();
-    render_text(renderer, regular_font, explore_info.str(), 
-                GRID_WIDTH + 10, 250, text_color);
-    
-    // Time warp status
-    std::stringstream warp_info;
-    warp_info << "Time Warp: " << (time_warp_mode ? "ON" : "OFF") 
-              << " (x" << time_warp_factor << ")";
-    render_text(renderer, regular_font, warp_info.str(), 
-                GRID_WIDTH + 10, 280, text_color);
-    
-    // === Agent Statistics Section ===
-    render_cached_text(renderer, regular_font, "Agent Statistics", 
-                GRID_WIDTH + 10, 310, 
-                {COLOR_HEADER.r, COLOR_HEADER.g, COLOR_HEADER.b, 255});
-    
-    int agentY = 340;
+
+    // ── Agents ──────────────────────────────────────────────────────────────
+    for (const auto& agent : env.get_agents()) {
+        if (!agent.is_alive()) continue;
+
+        int ax = agent.pos.x * CELL_SIZE;
+        int ay = agent.pos.y * CELL_SIZE;
+
+        // agent cube
+        int pad = CELL_SIZE / 8;
+        int side = CELL_SIZE - pad * 2;
+        DrawRectangle(ax + pad, ay + pad, side, side, agent.color);
+        DrawRectangleLines(ax + pad, ay + pad, side, side, Fade(agent.color, 0.3f));
+
+        // energy bar below agent
+        int bar_w = CELL_SIZE - 4;
+        int bar_h = std::max(3, CELL_SIZE / 8);
+        render_agent_energy_bar(ax + 2, ay + CELL_SIZE - bar_h - 2, bar_w, bar_h,
+                                agent.get_energy_percentage());
+    }
+
+    // ── Highlight selected agent (debug) ────────────────────────────────────
+    if (debug_mode && selected_agent >= 0 && (size_t)selected_agent < env.get_agents().size()) {
+        const AI& agent = env.get_agents()[(size_t)selected_agent];
+        int ax = agent.pos.x * CELL_SIZE;
+        int ay = agent.pos.y * CELL_SIZE;
+        DrawRectangleLinesEx({(float)ax - 2, (float)ay - 2,
+                              (float)CELL_SIZE + 4, (float)CELL_SIZE + 4}, 2, UI::ACCENT);
+    }
+
+    // ── Sidebar ─────────────────────────────────────────────────────────────
+    DrawRectangle(GRID_WIDTH, 0, SIDEBAR_WIDTH, SCREEN_HEIGHT, UI::SIDEBAR_BG);
+
+    // Header bar
+    DrawRectangle(GRID_WIDTH, 0, SIDEBAR_WIDTH, 50, UI::SIDEBAR_HDR);
+    draw_text("AI Simulation Stats", GRID_WIDTH + 15, 14, 18, UI::ACCENT);
+
+    // Stats
+    auto stat_line = [&](int y, const std::string& label, const std::string& value) {
+        draw_text(label, GRID_WIDTH + 15, y, 14, UI::TEXT_DIM);
+        draw_text(value, GRID_WIDTH + SIDEBAR_WIDTH - 15 - MeasureTextEx(game_font, value.c_str(), 14, 1).x, y, 14, UI::TEXT);
+    };
+
+    int sy = 65;
+    {
+        std::stringstream ss; ss << env.get_episode();
+        stat_line(sy, "Episode", ss.str()); sy += 20;
+    }
+    {
+        std::stringstream ss; ss << env.get_alive_count() << "/" << AGENT_COUNT;
+        stat_line(sy, "Active Agents", ss.str()); sy += 20;
+    }
+    {
+        std::stringstream ss; ss << env.get_food_list().size() << "/" << FOOD_COUNT;
+        stat_line(sy, "Food", ss.str()); sy += 20;
+    }
+    {
+        std::stringstream ss; ss << env.get_total_food_spawned();
+        stat_line(sy, "Total Food Spawned", ss.str()); sy += 20;
+    }
+    {
+        std::stringstream ss; ss << env.get_current_episode_food();
+        stat_line(sy, "Food This Episode", ss.str()); sy += 20;
+    }
+    {
+        std::stringstream ss; ss << std::fixed << std::setprecision(1) << env.get_avg_food_per_episode();
+        stat_line(sy, "Avg Food/Ep", ss.str()); sy += 20;
+    }
+    {
+        std::stringstream ss; ss << std::fixed << std::setprecision(3) << env.get_avg_exploration_rate();
+        stat_line(sy, "Avg Epsilon", ss.str()); sy += 20;
+    }
+    {
+        std::stringstream ss; ss << (time_warp_mode ? "ON" : "OFF") << " (x" << time_warp_factor << ")";
+        stat_line(sy, "Time Warp", ss.str()); sy += 25;
+    }
+
+    // ── Agent Statistics section ───────────────────────────────────────────
+    sy += 5;
+    render_sidebar_header(sy, "Agent Statistics");
+    sy += 25;
+
     char agent_id = 'A';
-    
     for (size_t i = 0; i < env.get_agents().size(); ++i, ++agent_id) {
         const AI& agent = env.get_agents()[i];
-        
-        // Agent background (dimmed if dead)
-        SDL_SetRenderDrawColor(renderer, 60, 60, 80, 
-                              agent.is_alive() ? 255 : 100);
-        SDL_Rect agent_rect = {GRID_WIDTH + 5, agentY, 
-                               SIDEBAR_WIDTH - 10, 75};
-        SDL_RenderFillRect(renderer, &agent_rect);
-        
-        // Agent name with custom color
-        std::stringstream name;
-        name << "Agent " << agent_id;
-        SDL_Color agent_color = agent.color;
-        if (!agent.is_alive()) {
-            agent_color.r *= 0.5;
-            agent_color.g *= 0.5;
-            agent_color.b *= 0.5;
-        }
-        render_text(renderer, regular_font, name.str(), 
-                    GRID_WIDTH + 15, agentY + 5, agent_color);
-        
-        // Status (Active/Inactive)
-        render_text(renderer, regular_font, 
-                    agent.is_alive() ? "Active" : "Inactive", 
-                    GRID_WIDTH + SIDEBAR_WIDTH - 80, agentY + 5, 
-                    agent.is_alive() ? SDL_Color{0, 200, 0, 255} 
-                                      : SDL_Color{200, 0, 0, 255});
-        
-        // Food eaten
-        std::stringstream food_eaten;
-        food_eaten << "Food: " << agent.total_food_eaten;
-        render_text(renderer, regular_font, food_eaten.str(), 
-                    GRID_WIDTH + 15, agentY + 30, text_color);
-        
-        // Energy bar
-        render_text(renderer, regular_font, "Energy:", 
-                    GRID_WIDTH + 15, agentY + 50, text_color);
-        render_progress_bar(renderer, GRID_WIDTH + 80, agentY + 53, 
-                            SIDEBAR_WIDTH - 100, 15, 
-                            agent.get_energy_percentage(), 
-                            COLOR_AGENT_ENERGY_BAR, COLOR_AGENT_ENERGY_BG);
-        
-        agentY += 85;
+
+        // card bg
+        int card_h = 70;
+        draw_rounded_rect(GRID_WIDTH + 8, sy, SIDEBAR_WIDTH - 16, card_h, 6, UI::SIDEBAR_HDR);
+
+        // agent name
+        Color name_col = agent.color;
+        if (!agent.is_alive()) name_col = Fade(name_col, 0.4f);
+        std::string name = "Agent "; name += agent_id;
+        draw_text(name, GRID_WIDTH + 18, sy + 6, 14, name_col);
+
+        // status badge
+        std::string status = agent.is_alive() ? "Active" : "Inactive";
+        Color status_col = agent.is_alive() ? UI::COL_GREEN : UI::COL_RED;
+        int sw = (int)MeasureTextEx(game_font, status.c_str(), 12, 1).x;
+        draw_text(status, GRID_WIDTH + SIDEBAR_WIDTH - 20 - sw, sy + 6, 12, status_col);
+
+        // food
+        std::stringstream fs; fs << "Food: " << agent.total_food_eaten;
+        draw_text(fs.str(), GRID_WIDTH + 18, sy + 28, 13, UI::TEXT);
+
+        // energy bar
+        draw_text("Energy", GRID_WIDTH + 18, sy + 48, 12, UI::TEXT_DIM);
+        render_agent_energy_bar(GRID_WIDTH + 80, sy + 49,
+                                SIDEBAR_WIDTH - 100, 12,
+                                agent.get_energy_percentage());
+
+        sy += card_h + 6;
     }
-    
-    // === Controls Section ===
-    render_cached_text(renderer, regular_font, "Controls", 
-                GRID_WIDTH + 10, agentY + 10, 
-                {COLOR_HEADER.r, COLOR_HEADER.g, COLOR_HEADER.b, 255});
-    render_cached_text(renderer, regular_font, "ESC - Exit", 
-                GRID_WIDTH + 15, agentY + 40, text_color);
-    render_cached_text(renderer, regular_font, "R - Reset", 
-                GRID_WIDTH + 15, agentY + 65, text_color);
-    render_cached_text(renderer, regular_font, "Space - Pause/Resume", 
-                GRID_WIDTH + 15, agentY + 90, text_color);
-    render_cached_text(renderer, regular_font, "W - Toggle Warp", 
-                GRID_WIDTH + 15, agentY + 115, text_color);
-    render_cached_text(renderer, regular_font, "+/- - Warp Speed", 
-                GRID_WIDTH + 15, agentY + 140, text_color);
-    render_cached_text(renderer, regular_font, "0 - Reset Warp", 
-                GRID_WIDTH + 15, agentY + 165, text_color);
-    render_cached_text(renderer, regular_font, "D - Toggle Debug", 
-                GRID_WIDTH + 15, agentY + 190, text_color);
-    render_cached_text(renderer, regular_font, "Click Agent - Debug Info", 
-                GRID_WIDTH + 15, agentY + 215, text_color);
-    
-    // === Debug Overlay ===
-    if (debug_mode && selected_agent >= 0 && static_cast<size_t>(selected_agent) < env.get_agents().size()) {
-        const AI& agent = env.get_agents()[static_cast<size_t>(selected_agent)];
-        if (agent.is_alive()) {
-            render_debug_overlay(renderer, agent, env.get_food_list(),
-                                   GRID_WIDTH + 15, agentY + 240, regular_font);
-        }
+
+    // ── Controls section ──────────────────────────────────────────────────
+    sy += 10;
+    render_sidebar_header(sy, "Controls");
+    sy += 22;
+
+    const char* controls[] = {
+        "ESC  Exit", "R  Reset", "Space  Pause",
+        "W  Warp", "+/-  Speed", "0  Reset Warp",
+        "D  Debug", "S  Save Brain", "L  Load Brain"
+    };
+    int col_w = SIDEBAR_WIDTH / 3;
+    for (int c = 0; c < 9; ++c) {
+        int cx = GRID_WIDTH + 10 + (c % 3) * col_w;
+        int cy = sy + (c / 3) * 18;
+        draw_text(controls[c], cx, cy, 12, UI::TEXT_DIM);
+    }
+
+    // ── Debug overlay ─────────────────────────────────────────────────────
+    if (debug_mode && selected_agent >= 0 && (size_t)selected_agent < env.get_agents().size()) {
+        const AI& agent = env.get_agents()[(size_t)selected_agent];
+        if (agent.is_alive())
+            render_debug_overlay(agent, env.get_food_list(),
+                                 GRID_WIDTH + 15, sy + 60);
     }
 }
 
-// ============================================================================
-// Debug Overlay
-// ============================================================================
+// ── Debug overlay ────────────────────────────────────────────────────────────
 
-void render_debug_overlay(SDL_Renderer* renderer, const AI& agent, 
-                          const std::vector<Food>& food_list,
-                          int x, int y, TTF_Font* font) {
-    if (!font || !renderer) return;
-    
-    SDL_Color text_color = {200, 200, 255, 255};
-    SDL_Color header_color = {180, 180, 255, 255};
-    int line_height = 20;
-    int current_y = y;
-    
-    // Get debug info
+void render_debug_overlay(const AI& agent,
+                           const std::vector<Food>& food_list,
+                           int x, int y) {
+
+    draw_text("=== DEBUG AGENT ===", x, y, 14, UI::ACCENT);
+    int cy = y + 22;
+
     std::vector<double> state = agent.get_state_for_debug(food_list);
     std::vector<double> q_values = agent.get_last_q_values();
-    
-    // Header
-    render_text(renderer, font, "=== DEBUG AGENT ===", x, current_y, header_color);
-    current_y += line_height + 5;
-    
-    // Position
-    std::stringstream pos_ss;
-    pos_ss << "Pos: (" << agent.pos.x << ", " << agent.pos.y << ")";
-    render_text(renderer, font, pos_ss.str(), x, current_y, text_color);
-    current_y += line_height;
-    
-    // Energy
-    std::stringstream energy_ss;
-    energy_ss << "Energy: " << agent.energy << "/" << MAX_ENERGY;
-    render_text(renderer, font, energy_ss.str(), x, current_y, text_color);
-    current_y += line_height;
-    
-    // Exploration rate
-    std::stringstream explore_ss;
-    explore_ss << "Epsilon: " << std::fixed << std::setprecision(3) << agent.get_explore_rate();
-    render_text(renderer, font, explore_ss.str(), x, current_y, text_color);
-    current_y += line_height + 5;
-    
-    // State vector
-    render_text(renderer, font, "State Vector:", x, current_y, header_color);
-    current_y += line_height;
+
+    auto line = [&](const std::string& s) {
+        draw_text(s, x + 4, cy, 13, UI::TEXT);
+        cy += 18;
+    };
+
+    std::stringstream ps; ps << "Pos: (" << agent.pos.x << ", " << agent.pos.y << ")"; line(ps.str());
+    std::stringstream es; es << "Energy: " << agent.energy << "/" << MAX_ENERGY; line(es.str());
+    std::stringstream eps; eps << "Epsilon: " << std::fixed << std::setprecision(3) << agent.get_explore_rate(); line(eps.str());
+
+    cy += 4;
+    draw_text("State Vector:", x + 4, cy, 13, UI::ACCENT);
+    cy += 18;
     for (size_t i = 0; i < state.size() && i < 12; ++i) {
-        std::stringstream ss;
-        ss << "  [" << i << "]: " << std::fixed << std::setprecision(3) << state[i];
-        render_text(renderer, font, ss.str(), x, current_y, text_color);
-        current_y += line_height;
+        std::stringstream ss; ss << "  [" << i << "]: " << std::fixed << std::setprecision(3) << state[i]; line(ss.str());
     }
-    
-    current_y += 5;
-    
-    // Q-Values
-    render_text(renderer, font, "Q-Values:", x, current_y, header_color);
-    current_y += line_height;
-    const char* action_names[] = {"LEFT", "RIGHT", "UP", "DOWN"};
+
+    cy += 4;
+    draw_text("Q-Values:", x + 4, cy, 13, UI::ACCENT);
+    cy += 18;
+    const char* anames[] = {"LEFT", "RIGHT", "UP", "DOWN"};
     for (int i = 0; i < 4; ++i) {
-        std::stringstream ss;
-        ss << "  " << action_names[i] << ": " << std::fixed << std::setprecision(3) 
-           << (static_cast<size_t>(i) < q_values.size() ? q_values[static_cast<size_t>(i)] : 0.0);
-        render_text(renderer, font, ss.str(), x, current_y, text_color);
-        current_y += line_height;
+        std::stringstream ss; ss << "  " << anames[i] << ": " << std::fixed << std::setprecision(3)
+                                 << ((size_t)i < q_values.size() ? q_values[(size_t)i] : 0.0); line(ss.str());
     }
 }

@@ -24,7 +24,7 @@
 #include <memory>
 #include <random>
 #include <optional>
-#include <SDL2/SDL.h>
+#include "raylib.h"
 
 /**
  * @brief Possible actions an agent can take.
@@ -89,7 +89,7 @@ public:
     Position pos;                    ///< Current position on grid
     int energy;                      ///< Current energy level
     int total_food_eaten;            ///< Total food consumed in current episode
-    SDL_Color color;                 ///< Unique color for visualization
+    Color color;                     ///< Unique color for visualization
     int brain_learning_rate;         ///< Visualization parameter
     std::vector<double> synaptic_strength;  ///< Visualization parameter
     std::vector<int> layer_sizes;    ///< Neural network architecture
