@@ -19,19 +19,19 @@ namespace Config {
 constexpr int GRID_SIZE = 15;
 constexpr int FOOD_COUNT = 50;
 constexpr int AGENT_COUNT = 5;
-constexpr int MAX_ENERGY = 100;
+constexpr int MAX_ENERGY = 200;
 constexpr int ENERGY_DECAY = 1;
-constexpr int FOOD_ENERGY = 50;
+constexpr int FOOD_ENERGY = 80;
 
 // ============================================================================
 // Reinforcement Learning Parameters
 // ============================================================================
 
-constexpr double LEARNING_RATE = 0.01;
+constexpr double LEARNING_RATE = 0.05;
 constexpr double DISCOUNT_FACTOR = 0.99;
 constexpr double INITIAL_EXPLORE_RATE = 1.0;
-constexpr double EXPLORE_DECAY = 0.9995;
-constexpr double MIN_EXPLORE_RATE = 0.1;
+constexpr double EXPLORE_DECAY = 0.995;
+constexpr double MIN_EXPLORE_RATE = 0.05;
 constexpr size_t EXPERIENCE_BUFFER_SIZE = 100000;
 constexpr int BATCH_SIZE = 32;
 constexpr int SLEEP_MS = 1;
@@ -86,3 +86,25 @@ inline std::string brain_file_path() {
 } // namespace Config
 
 using namespace Config;
+
+// ============================================================================
+// Runtime Configuration (mutable settings)
+// ============================================================================
+
+/**
+ * @brief Runtime configuration that can be changed via settings menu.
+ * 
+ * These values override the constexpr defaults at runtime.
+ */
+struct RuntimeConfig {
+    int grid_size = GRID_SIZE;
+    int food_count = FOOD_COUNT;
+    int agent_count = AGENT_COUNT;
+    int food_energy = FOOD_ENERGY;
+    int food_reset_threshold = 10;  ///< Respawn food when count drops below this
+    
+    static RuntimeConfig& instance() {
+        static RuntimeConfig config;
+        return config;
+    }
+};

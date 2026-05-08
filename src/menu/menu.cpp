@@ -36,6 +36,7 @@ MenuState Menu::run() {
             case MenuState::HOME:            do_home(); break;
             case MenuState::TRAINING_SCREEN: do_training_config(); break;
             case MenuState::TRAINING_ACTIVE: do_training_active(); break;
+            case MenuState::SETTINGS:        do_settings(); break;
             case MenuState::ABOUT:           do_about(); break;
             default: return current_state_;
         }
@@ -44,6 +45,7 @@ MenuState Menu::run() {
             switch (current_state_) {
                 case MenuState::HOME:            current_state_ = MenuState::EXIT; break;
                 case MenuState::TRAINING_SCREEN: current_state_ = MenuState::HOME; break;
+                case MenuState::SETTINGS:        current_state_ = MenuState::HOME; break;
                 case MenuState::ABOUT:           current_state_ = MenuState::HOME; break;
                 case MenuState::TRAINING_ACTIVE:
                     g_training_stop_flag.store(true);
@@ -109,6 +111,7 @@ void Menu::do_home() {
     Btn btns[] = {
         {"Start Simulation", MenuState::START_SIM},
         {"Training",         MenuState::TRAINING_SCREEN},
+        {"Settings",         MenuState::SETTINGS},
         {"About",            MenuState::ABOUT},
         {"Exit",             MenuState::EXIT}
     };
@@ -303,6 +306,58 @@ void Menu::do_training_active() {
     // Check completion
     if (training_status_ptr_ && !training_status_ptr_->active.load())
         current_state_ = MenuState::TRAINING_SCREEN;
+
+    EndDrawing();
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+
+void Menu::do_settings() {
+    BeginDrawing();
+    ClearBackground(CLITERAL(Color){13,17,23,255});
+
+    int cw = GetScreenWidth();
+    RuntimeConfig& cfg = RuntimeConfig::instance();
+
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 36);
+    int tw = MeasureText("Settings", 36);
+    DrawText("Settings", (cw - tw) / 2, 25, 36, CLITERAL(Color){88,166,255,255});
+
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 14);
+    int sw = MeasureText("Adjust simulation parameters.", 14);
+    DrawText("Adjust simulation parameters.",
+             (cw - sw) / 2, 75, 14, CLITERAL(Color){139,148,158,255});
+
+    int px = (cw - 500) / 2;
+    DrawRectangleRounded({(float)px, 110, 500, 350}, 0.1f, 8, CLITERAL(Color){22,27,34,255});
+    DrawRectangleRoundedLines({(float)px, 110, 500, 350}, 0.1f, 8, CLITERAL(Color){48,54,61,255});
+
+    int lx = px + 30;
+    int fx = px + 220;
+
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 14);
+
+    auto edit_field = [&](const char* label, int y, char* buf, unsigned buf_size, bool& editing, int& val, int min_v, int max_v) {
+        DrawText(label, lx, y + 6, 14, CLITERAL(Color){201,209,217,255});
+        Rectangle r = {(float)fx, (float)y, 120, 30};
+        if (GuiTextBox(r, buf, buf_size - 1, editing))
+            editing = !editing;
+        if (!editing) {
+            try { val = std::max(min_v, std::min(max_v, std::stoi(buf))); }
+            catch (...) {}
+        }
+    };
+
+    snprintf(grid_buf_, sizeof(grid_buf_), "%d", cfg.grid_size);
+    edit_field("Grid Size:",        115, grid_buf_,     sizeof(grid_buf_),     editing_grid_,       cfg.grid_size,        5,  30);
+    edit_field("Agents:",           170, agents_buf_,   sizeof(agents_buf_),   editing_agents_,     cfg.agent_count,      1,  50);
+    edit_field("Food Count:",       225, food_count_buf_, sizeof(food_count_buf_), editing_food_count_, cfg.food_count,   1, 200);
+    edit_field("Food Threshold:",   280, food_thresh_buf_, sizeof(food_thresh_buf_), editing_food_thresh_, cfg.food_reset_threshold, 1, 100);
+
+    // Back button
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 16);
+    if (GuiButton({(float)(cw / 2 - 60), 500, 120, 40}, "Back"))
+        current_state_ = MenuState::HOME;
 
     EndDrawing();
 }

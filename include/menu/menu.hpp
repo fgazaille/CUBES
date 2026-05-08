@@ -87,13 +87,20 @@ private:
     // Editing state
     bool editing_episodes_ = false;
     bool editing_threads_  = false;
+    bool editing_grid_ = false;
+    bool editing_agents_ = false;
+    bool editing_food_count_ = false;
+    bool editing_food_thresh_ = false;
     char ep_buf_[32]{};
     char th_buf_[32]{};
-
-
+    char grid_buf_[32]{};
+    char agents_buf_[32]{};
+    char food_count_buf_[32]{};
+    char food_thresh_buf_[32]{};
 
     void do_home();
     void do_training_config();
     void do_training_active();
+    void do_settings();
     void do_about();
 };
