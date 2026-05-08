@@ -83,6 +83,7 @@ private:
     std::vector<Action> last_actions;                ///< History of recent actions
     std::mt19937 gen;                               ///< Random number generator (thread-local)
     std::uniform_real_distribution<double> dis;       ///< Uniform distribution [0,1]
+    int train_step_counter = 0;                      ///< Steps since last DQN train
 
 public:
     // State variables (public for easy access)

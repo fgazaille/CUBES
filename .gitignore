@@ -30,6 +30,5 @@ docs/latex/
 session-*.md
 test_nn
 
-# Generated runtime files
-training_progress.txt
-training_summary.txt
+# Test binary
+test_nn

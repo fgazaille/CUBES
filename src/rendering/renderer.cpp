@@ -2,12 +2,25 @@
 #include <sstream>
 #include <iomanip>
 #include <cmath>
+#include <algorithm>
 
 namespace {
     Texture2D agent_tex{};
     Texture2D food_tex{};
     Font game_font{};
     bool resources_loaded = false;
+
+    constexpr int MAX_HISTORY = 500;
+    struct FoodPoint { int episode; int food; };
+    std::vector<FoodPoint> agent_history[16];
+    int last_recorded_episode = -1;
+    int last_agent_count = -1;
+
+    void clear_food_history() {
+        for (auto& h : agent_history) h.clear();
+        last_recorded_episode = -1;
+        last_agent_count = -1;
+    }
 
     void draw_rounded_rect(int x, int y, int w, int h, int /*radius*/, Color color) {
         DrawRectangleRounded({(float)x, (float)y, (float)w, (float)h}, 0.15f, 8, color);
@@ -26,10 +39,16 @@ void init_renderer(const std::string& asset_path) {
     if (player_img.data) UnloadImage(player_img);
     if (food_img.data)   UnloadImage(food_img);
 
-    game_font = LoadFont((asset_path + "Futura.ttf").c_str());
-    if (game_font.texture.id == 0) {
-        game_font = GetFontDefault();
+    int fsize = 0;
+    unsigned char* fdata = LoadFileData((asset_path + "Futura.ttf").c_str(), &fsize);
+    if (fdata) {
+        game_font = LoadFontFromMemory(".ttf", fdata, fsize, 32, nullptr, 0);
+        if (game_font.texture.id == 0)
+            game_font = LoadFontFromMemory(".ttc", fdata, fsize, 32, nullptr, 0);
+        UnloadFileData(fdata);
     }
+    if (game_font.texture.id == 0)
+        game_font = GetFontDefault();
 
     SetTextureFilter(agent_tex, TEXTURE_FILTER_BILINEAR);
     SetTextureFilter(food_tex, TEXTURE_FILTER_BILINEAR);
@@ -83,6 +102,25 @@ void render_environment(const Environment& env,
     RuntimeConfig& cfg = RuntimeConfig::instance();
     int cell_size = (SCREEN_WIDTH - SIDEBAR_WIDTH) / cfg.grid_size;
     int grid_pixel_width = cell_size * cfg.grid_size;
+
+    // ── Record food history ───────────────────────────────────────────────
+    {
+        int ep = env.get_episode();
+        const auto& agents = env.get_agents();
+        if (ep < last_recorded_episode || (int)agents.size() != last_agent_count) {
+            clear_food_history();
+            last_agent_count = (int)agents.size();
+        }
+        if (ep != last_recorded_episode) {
+            last_recorded_episode = ep;
+            for (size_t i = 0; i < agents.size() && i < 16; ++i) {
+                auto& hist = agent_history[i];
+                hist.push_back({ep, agents[i].total_food_eaten});
+                if (hist.size() > MAX_HISTORY)
+                    hist.erase(hist.begin());
+            }
+        }
+    }
 
     // ── Grid ────────────────────────────────────────────────────────────────
     DrawRectangle(0, 0, grid_pixel_width, grid_pixel_width, UI::GRID_BG);
@@ -175,8 +213,133 @@ void render_environment(const Environment& env,
         stat_line(sy, "Time Warp", ss.str()); sy += 25;
     }
 
+    // ── Learning Progress graph ───────────────────────────────────────────
+    sy += 8;
+    render_sidebar_header(sy, "Learning Progress");
+    sy += 22;
+
+    int graph_x = grid_pixel_width + 10;
+    int graph_y = sy;
+    int graph_w = SIDEBAR_WIDTH - 20;
+    int graph_h = 130;
+
+    draw_rounded_rect(graph_x, graph_y, graph_w, graph_h, 4, UI::SIDEBAR_HDR);
+
+    // Find max food across all history for Y axis scaling
+    int max_food = 10;
+    int min_ep = 0;
+    int max_ep = 1;
+    bool any_data = false;
+    for (const auto& hist : agent_history) {
+        if (hist.empty()) continue;
+        any_data = true;
+        for (const auto& p : hist) {
+            if (p.food > max_food) max_food = p.food;
+            if (p.episode > max_ep) max_ep = p.episode;
+        }
+        min_ep = hist.front().episode;
+    }
+    max_food = ((max_food / 10) + 1) * 10;
+
+    // Build best-food-per-episode trace (histories are episode-synced)
+    std::vector<FoodPoint> best_trace;
+    {
+        size_t hist_len = 0;
+        for (const auto& h : agent_history)
+            if (!h.empty()) { hist_len = h.size(); break; }
+        for (size_t j = 0; j < hist_len; ++j) {
+            int ep = 0, best = 0;
+            for (const auto& h : agent_history) {
+                if (j >= h.size()) continue;
+                ep = h[j].episode;
+                if (h[j].food > best) best = h[j].food;
+            }
+            best_trace.push_back({ep, best});
+        }
+    }
+
+    if (any_data) {
+        int plot_x = graph_x + 30;
+        int plot_y = graph_y + 8;
+        int plot_w = graph_w - 40;
+        int plot_h = graph_h - 38;
+
+        // Grid lines (horizontal)
+        for (int i = 0; i <= 4; ++i) {
+            int ly = plot_y + plot_h - (plot_h * i / 4);
+            DrawLine(plot_x, ly, plot_x + plot_w, ly, CLITERAL(Color){40,46,54,255});
+            std::stringstream sl; sl << max_food * i / 4;
+            draw_text(sl.str(), graph_x + 2, ly - 7, 9, UI::TEXT_DIM);
+        }
+
+        // Y axis label
+        draw_text("Food/Life", graph_x + 2, plot_y, 9, UI::TEXT_DIM);
+
+        // X axis label
+        std::stringstream sx; sx << "Episode";
+        int sxw = (int)MeasureTextEx(game_font, sx.str().c_str(), 9, 1).x;
+        draw_text(sx.str(), plot_x + plot_w - sxw - 2, graph_y + graph_h - 16, 9, UI::TEXT_DIM);
+
+        int ep_range = std::max(1, max_ep - min_ep);
+
+        // Best trace (overlay on per-agent lines)
+        Color best_col = {88, 166, 255, 255};
+        for (size_t j = 1; j < best_trace.size(); ++j) {
+            int x1 = plot_x + (best_trace[j-1].episode - min_ep) * plot_w / ep_range;
+            int y1 = plot_y + plot_h - best_trace[j-1].food * plot_h / max_food;
+            int x2 = plot_x + (best_trace[j].episode - min_ep) * plot_w / ep_range;
+            int y2 = plot_y + plot_h - best_trace[j].food * plot_h / max_food;
+            DrawLine(x1, y1, x2, y2, best_col);
+        }
+        if (!best_trace.empty()) {
+            const auto& last = best_trace.back();
+            int lx = plot_x + (last.episode - min_ep) * plot_w / ep_range;
+            int ly = plot_y + plot_h - last.food * plot_h / max_food;
+            DrawCircle(lx, ly, 4, best_col);
+            std::string val = std::to_string(last.food);
+            int vw = (int)MeasureTextEx(game_font, val.c_str(), 11, 1).x;
+            draw_text(val, lx - vw / 2, ly - 16, 11, UI::TEXT);
+        }
+
+        // Lines for each agent
+        char agent_id = 'A';
+        for (size_t ai = 0; ai < env.get_agents().size() && ai < 16; ++ai, ++agent_id) {
+            const auto& hist = agent_history[ai];
+            if (hist.size() < 2) continue;
+
+            Color col = env.get_agents()[ai].color;
+
+            // Draw polyline
+            for (size_t j = 1; j < hist.size(); ++j) {
+                int x1 = plot_x + (hist[j-1].episode - min_ep) * plot_w / ep_range;
+                int y1 = plot_y + plot_h - hist[j-1].food * plot_h / max_food;
+                int x2 = plot_x + (hist[j].episode - min_ep) * plot_w / ep_range;
+                int y2 = plot_y + plot_h - hist[j].food * plot_h / max_food;
+                DrawLine(x1, y1, x2, y2, col);
+            }
+        }
+
+        // Legend
+        int lx = plot_x;
+        int ly = graph_y + graph_h - 14;
+        DrawRectangle(lx, ly, 8, 8, CLITERAL(Color){88, 166, 255, 255});
+        draw_text(" Best", lx + 10, ly - 2, 10, UI::TEXT);
+        lx += (int)MeasureTextEx(game_font, " Best", 10, 1).x + 16;
+        agent_id = 'A';
+        for (size_t ai = 0; ai < env.get_agents().size() && ai < 16; ++ai, ++agent_id) {
+            if (agent_history[ai].empty()) continue;
+            Color col = env.get_agents()[ai].color;
+            std::string label = " "; label += agent_id;
+            DrawRectangle(lx, ly, 8, 8, col);
+            draw_text(label, lx + 10, ly - 2, 10, UI::TEXT);
+            lx += 22;
+            if (lx + 22 > graph_x + graph_w) break;
+        }
+    }
+
+    sy += graph_h + 10;
+
     // ── Agent Statistics section ───────────────────────────────────────────
-    sy += 5;
     render_sidebar_header(sy, "Agent Statistics");
     sy += 25;
     char agent_id = 'A';

@@ -30,12 +30,10 @@ constexpr int FOOD_ENERGY = 80;
 constexpr double LEARNING_RATE = 0.001;   // Lower base rate for Adam optimizer
 constexpr double DISCOUNT_FACTOR = 0.99;
 constexpr double INITIAL_EXPLORE_RATE = 1.0;
-constexpr double EXPLORE_DECAY = 0.997;   // Slower decay for more exploration
-constexpr double MIN_EXPLORE_RATE = 0.01; // Lower min for more exploitation late in training
-constexpr size_t EXPERIENCE_BUFFER_SIZE = 200000; // Larger buffer
-constexpr int BATCH_SIZE = 64;            // Larger batch for more stable gradients
-constexpr int SLEEP_MS = 1;
-constexpr int NUM_THREADS = 1;
+constexpr double EXPLORE_DECAY = 0.997;
+constexpr double MIN_EXPLORE_RATE = 0.01;
+constexpr size_t EXPERIENCE_BUFFER_SIZE = 100000;
+constexpr int BATCH_SIZE = 64;
 
 // ============================================================================
 // Neural Network Architecture

@@ -193,25 +193,63 @@ void AI::load_brain_from_json(const std::string& json_str) {
 }
 
 void AI::save_brain_to_file(const std::string& filename) const {
-    std::ofstream file(filename);
-    if (file.is_open()) {
-        file << save_brain_to_json();
-        file.close();
-    } else {
-        throw std::runtime_error("Could not save to file: " + filename);
+    auto try_save = [&](const std::string& path) -> bool {
+        std::ofstream file(path);
+        if (file.is_open()) {
+            file << save_brain_to_json();
+            file.close();
+            return true;
+        }
+        return false;
+    };
+
+    if (try_save(filename)) return;
+
+    // Fallback: extract basename and try common locations
+    std::string basename = filename;
+    auto pos = filename.find_last_of("/\\");
+    if (pos != std::string::npos) basename = filename.substr(pos + 1);
+
+    for (const char* dir : {"", "assets/", "data/", "./", "../assets/"}) {
+        std::string candidate = std::string(dir) + basename;
+        if (candidate != filename && try_save(candidate)) {
+            std::cerr << "Saved brain to " << candidate << " (fallback from " << filename << ")\n";
+            return;
+        }
     }
+
+    throw std::runtime_error("Could not save to file: " + filename);
 }
 
 void AI::load_brain_from_file(const std::string& filename) {
-    std::ifstream file(filename);
-    if (file.is_open()) {
-        std::stringstream buffer;
-        buffer << file.rdbuf();
-        load_brain_from_json(buffer.str());
-        file.close();
-    } else {
-        throw std::runtime_error("Could not open file: " + filename);
+    auto try_load = [&](const std::string& path) -> bool {
+        std::ifstream file(path);
+        if (file.is_open()) {
+            std::stringstream buffer;
+            buffer << file.rdbuf();
+            load_brain_from_json(buffer.str());
+            file.close();
+            return true;
+        }
+        return false;
+    };
+
+    if (try_load(filename)) return;
+
+    // Fallback: try common locations
+    std::string basename = filename;
+    auto pos = filename.find_last_of("/\\");
+    if (pos != std::string::npos) basename = filename.substr(pos + 1);
+
+    for (const char* dir : {"", "assets/", "data/", "./", "../assets/"}) {
+        std::string candidate = std::string(dir) + basename;
+        if (candidate != filename && try_load(candidate)) {
+            std::cerr << "Loaded brain from " << candidate << " (fallback from " << filename << ")\n";
+            return;
+        }
     }
+
+    throw std::runtime_error("Could not open file: " + filename);
 }
 
 // ============================================================================
@@ -354,6 +392,11 @@ void AI::add_experience(const std::vector<double>& state, int action,
 }
 
 void AI::learn_from_experience() {
+    // Only train every TRAIN_INTERVAL steps to reduce computation
+    train_step_counter++;
+    if (train_step_counter < 4) return;
+    train_step_counter = 0;
+    
     if (experience_buffer.size() < BATCH_SIZE) return;
     
     double lr = LEARNING_RATE;
