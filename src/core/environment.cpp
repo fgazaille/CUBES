@@ -32,6 +32,9 @@ Environment::Environment(bool)
     // Create agents
     agents.resize(cfg.agent_count);
     
+    // Initialize respawn counters (0 = alive, no respawn pending)
+    respawn_counters.resize(cfg.agent_count, 0);
+    
     // Spawn initial food
     spawn_food();
     
@@ -44,13 +47,14 @@ Environment::Environment(bool)
 // ============================================================================
 
 void Environment::spawn_food() {
-    food_list.clear();
     RuntimeConfig& cfg = RuntimeConfig::instance();
     
-    // Random distribution for food energy
     std::uniform_int_distribution<int> energy_dist(cfg.food_energy / 2, cfg.food_energy + cfg.food_energy / 2);
     
-    for (int i = 0; i < cfg.food_count; ++i) {
+    int to_spawn = cfg.food_count - static_cast<int>(food_list.size());
+    if (to_spawn <= 0) return;
+    
+    for (int i = 0; i < to_spawn; ++i) {
         Food f;
         f.pos.x = env_gen() % cfg.grid_size;
         f.pos.y = env_gen() % cfg.grid_size;
@@ -137,59 +141,37 @@ void Environment::reset() {
     
     episode++;
     
-    // === Genetic Algorithm: Create new generation ===
-    int num_parents = std::max(2, static_cast<int>(agents.size() * 0.6));
-    std::vector<AI> parents = select_parents(num_parents);
+    // Find the best genome (highest food eaten) to use as template
+    std::vector<double> template_genome;
+    int best_food = -1;
+    for (const auto& agent : agents) {
+        if (agent.total_food_eaten > best_food) {
+            best_food = agent.total_food_eaten;
+            template_genome = agent.get_neural_network()->get_genome();
+        }
+    }
     
     std::vector<AI> new_agents;
-    
-    // Keep top 1-2 elites unchanged (low elitism to maintain diversity)
-    int num_elites = std::max(1, static_cast<int>(parents.size() * 0.1));
-    // Only preserve truly exceptional agents (top performer)
-    if (episode > 5 && parents[0].total_food_eaten > parents.back().total_food_eaten * 1.5) {
-        num_elites = 1;
-    }
-    for (int i = 0; i < num_elites && i < static_cast<int>(parents.size()); ++i) {
-        new_agents.push_back(parents[i]);
-    }
-    
-    // Create offspring through crossover and mutation
-    std::uniform_real_distribution<double> dis(0.0, 1.0);
-    while (new_agents.size() < agents.size()) {
-        int p1 = env_gen() % parents.size();
-        int p2 = env_gen() % parents.size();
-        if (p1 == p2) p2 = (p1 + 1) % parents.size();
-        
-        std::vector<double> parent1_genome = parents[p1].get_neural_network()->get_genome();
-        std::vector<double> parent2_genome = parents[p2].get_neural_network()->get_genome();
-        std::vector<double> child_genome = crossover(parent1_genome, parent2_genome);
-        
-        // Higher mutation rate for better exploration (1%)
-        mutate_genome(child_genome, 0.01);
-        
-        AI child(child_genome);
-        child.energy = MAX_ENERGY;
-        child.pos.x = env_gen() % GRID_SIZE;
-        child.pos.y = env_gen() % GRID_SIZE;
-        child.total_food_eaten = 0;
-        child.color = (p1 < p2) ? parents[p1].color : parents[p2].color;
-        
-        new_agents.push_back(std::move(child));
+    for (size_t i = 0; i < agents.size(); ++i) {
+        std::vector<double> child_genome;
+        if (!template_genome.empty()) {
+            child_genome = template_genome;
+            mutate_genome(child_genome, 0.02);
+        }
+        AI new_agent = child_genome.empty() ? AI() : AI(child_genome);
+        new_agent.energy = MAX_ENERGY;
+        new_agent.pos.x = env_gen() % GRID_SIZE;
+        new_agent.pos.y = env_gen() % GRID_SIZE;
+        new_agent.total_food_eaten = 0;
+        new_agents.push_back(std::move(new_agent));
     }
     
     agents = std::move(new_agents);
     
-    // Preserve best brain across generations
-    {
-        std::ifstream best_file(brain_file_path());
-        if (best_file.good()) {
-            try {
-                agents[0].load_brain_from_file(brain_file_path());
-            } catch (...) { }
-        }
-    }
+    // Reset respawn counters
+    respawn_counters.assign(agents.size(), 0);
     
-    // Respawn food
+    // Respawn food (fill up to FOOD_COUNT)
     spawn_food();
 }
 
@@ -299,17 +281,41 @@ void Environment::run_learning_step() {
     // === Replenish food if needed ===
     check_food_reset();
     
-    // === Check if all agents are dead → run evolution ===
-    bool all_dead = true;
+    // === Agent respawning ===
+    // Find which agents are dead and pick a template genome
+    int alive_count = 0;
+    std::vector<double> template_genome;
+    bool found_template = false;
     for (const auto& agent : agents) {
-        if (agent.is_alive()) {
-            all_dead = false;
-            break;
+        if (agent.is_alive()) alive_count++;
+        if (!agent.is_alive() && !found_template) {
+            template_genome = agent.get_neural_network()->get_genome();
+            found_template = true;
+        }
+    }
+    // If no dead agent was found (all alive), use first live agent's genome as fallback
+    if (!found_template) {
+        for (const auto& agent : agents) {
+            if (agent.is_alive()) {
+                template_genome = agent.get_neural_network()->get_genome();
+                break;
+            }
         }
     }
     
-    if (all_dead) {
-        reset();  // Runs genetic algorithm, preserves best brain, respawns food
+    if (!template_genome.empty()) {
+        for (size_t i = 0; i < agents.size(); ++i) {
+            if (!agents[i].is_alive()) {
+                std::vector<double> child_genome = template_genome;
+                mutate_genome(child_genome, 0.02);
+                AI new_agent(child_genome);
+                new_agent.energy = MAX_ENERGY;
+                new_agent.pos.x = env_gen() % GRID_SIZE;
+                new_agent.pos.y = env_gen() % GRID_SIZE;
+                new_agent.total_food_eaten = 0;
+                agents[i] = std::move(new_agent);
+            }
+        }
     }
 }
 

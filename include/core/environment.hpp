@@ -50,6 +50,9 @@ private:
     double avg_food_per_episode;          ///< Running average of food per episode
     int episode_count_for_avg;             ///< Count for calculating average
 
+    // Respawn tracking
+    std::vector<int> respawn_counters;     ///< Frames until dead agents respawn (0 = alive or no delay pending)
+
     /**
      * @brief Select top-performing agents as parents for next generation.
      * 
