@@ -50,6 +50,7 @@ set(PROJECT_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/include/core
     ${CMAKE_CURRENT_SOURCE_DIR}/include/rendering
     ${CMAKE_CURRENT_SOURCE_DIR}/include/menu
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/debug
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 )
 
@@ -60,13 +61,14 @@ set(PROJECT_INCLUDES
 file(GLOB CORE_SRC      "src/core/*.cpp")
 file(GLOB RENDERING_SRC "src/rendering/*.cpp")
 file(GLOB MENU_SRC      "src/menu/*.cpp")
+file(GLOB DEBUG_SRC     "src/debug/*.cpp")
 set(MAIN_SRC "src/main.cpp")
 
 # ============================================================================
 # Executable
 # ============================================================================
 
-add_executable(simulation ${CORE_SRC} ${RENDERING_SRC} ${MENU_SRC} ${MAIN_SRC})
+add_executable(simulation ${CORE_SRC} ${RENDERING_SRC} ${MENU_SRC} ${DEBUG_SRC} ${MAIN_SRC})
 
 target_include_directories(simulation PRIVATE ${PROJECT_INCLUDES})
 

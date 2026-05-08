@@ -4,6 +4,7 @@
 #include <iostream>
 #include <fstream>
 #include <mutex>
+#include <set>
 
 Environment::Environment(bool)
     : episode(1),
@@ -42,33 +43,6 @@ void Environment::check_food_reset() {
         spawn_food();
 }
 
-std::vector<AI> Environment::select_parents(int num_parents) {
-    std::vector<AI> selected;
-    std::uniform_int_distribution<size_t> dist(0, agents.size() - 1);
-    for (int p = 0; p < num_parents; ++p) {
-        size_t best_idx = dist(env_gen);
-        int best_food = agents[best_idx].total_food_eaten;
-        for (int t = 0; t < 3; ++t) {
-            size_t candidate = dist(env_gen);
-            if (agents[candidate].total_food_eaten > best_food) {
-                best_food = agents[candidate].total_food_eaten;
-                best_idx = candidate;
-            }
-        }
-        selected.push_back(agents[best_idx]);
-    }
-    return selected;
-}
-
-std::vector<double> Environment::crossover(const std::vector<double>& parent1,
-                                           const std::vector<double>& parent2) {
-    std::vector<double> offspring(parent1.size());
-    std::uniform_real_distribution<double> dis(0.0, 1.0);
-    for (size_t i = 0; i < parent1.size(); ++i)
-        offspring[i] = (dis(env_gen) < 0.5) ? parent1[i] : parent2[i];
-    return offspring;
-}
-
 void Environment::mutate_genome(std::vector<double>& genome, double mutation_rate) {
     std::uniform_real_distribution<double> dis(0.0, 1.0);
     std::uniform_real_distribution<double> dist(-0.2, 0.2);
@@ -81,6 +55,9 @@ void Environment::mutate_genome(std::vector<double>& genome, double mutation_rat
 void Environment::reset() {
     RuntimeConfig& cfg = RuntimeConfig::instance();
 
+    steps_since_last_reset_ = 0;
+    stagnation_baseline_ = best_food_ever.load();
+
     int best_idx = 0;
     last_gen_best_food = 0;
     for (size_t i = 0; i < agents.size(); ++i) {
@@ -89,13 +66,14 @@ void Environment::reset() {
             best_idx = i;
         }
     }
-    {
-        static std::mutex brain_save_mutex;
-        std::lock_guard<std::mutex> lock(brain_save_mutex);
-        try {
-            agents[best_idx].save_brain_to_file(brain_file_path());
-        } catch (const std::exception& e) {
-            std::cerr << "Auto-save brain failed: " << e.what() << "\n";
+    if (!agents.empty()) {
+        if (last_gen_best_food > last_saved_best_food_) {
+            last_saved_best_food_ = last_gen_best_food;
+            try {
+                agents[best_idx].save_brain_to_file(brain_file_path());
+            } catch (const std::exception& e) {
+                std::cerr << "Auto-save brain failed: " << e.what() << "\n";
+            }
         }
     }
 
@@ -110,12 +88,15 @@ void Environment::reset() {
     episode++;
 
     std::vector<AI> new_agents;
-    for (size_t i = 0; i < agents.size(); ++i) {
+    for (int i = 0; i < cfg.agent_count; ++i) {
         std::vector<double> child_genome;
-        std::vector<double> template_genome = agents[i].get_neural_network()->get_genome();
-        if (!template_genome.empty()) {
-            child_genome = template_genome;
-            mutate_genome(child_genome, 0.02);
+        if (!agents.empty()) {
+            size_t src_idx = i % agents.size();
+            std::vector<double> template_genome = agents[src_idx].get_neural_network()->get_genome();
+            if (!template_genome.empty()) {
+                child_genome = template_genome;
+                mutate_genome(child_genome, 0.02);
+            }
         }
         AI new_agent = child_genome.empty() ? AI() : AI(child_genome);
         new_agent.energy = MAX_ENERGY;
@@ -134,6 +115,7 @@ void Environment::run_learning_step() {
     std::vector<std::pair<int, int>> food_consumed;
     std::mutex consumed_mutex;
     RuntimeConfig& cfg = RuntimeConfig::instance();
+    steps_since_last_reset_++;
 
     for (size_t idx = 0; idx < agents.size(); ++idx) {
         if (!agents[idx].is_alive()) continue;
@@ -162,6 +144,7 @@ void Environment::run_learning_step() {
                     if (agent.energy > MAX_ENERGY) agent.energy = MAX_ENERGY;
                     agent.total_food_eaten++;
                     total_food_eaten_this_episode++;
+                    total_food_eaten_all_time++;
                     consumed_index = static_cast<int>(k);
                     {
                         std::lock_guard<std::mutex> lock2(consumed_mutex);
@@ -169,6 +152,13 @@ void Environment::run_learning_step() {
                     }
                     break;
                 }
+            }
+
+            // Track best-food-ever from this agent
+            {
+                int ate = agent.total_food_eaten;
+                int cur = best_food_ever.load();
+                while (ate > cur && !best_food_ever.compare_exchange_weak(cur, ate));
             }
 
             if (consumed_index >= 0)
@@ -197,11 +187,15 @@ void Environment::run_learning_step() {
 
     pool.wait();
 
-    std::sort(food_consumed.rbegin(), food_consumed.rend(),
-              [](const auto& a, const auto& b) { return a.second > b.second; });
-    for (const auto& consumed : food_consumed) {
-        if (consumed.second >= 0 && consumed.second < static_cast<int>(food_list.size()))
-            food_list.erase(food_list.begin() + consumed.second);
+    // Fix C2: deduplicate food indices before removal
+    {
+        std::set<int, std::greater<int>> consumed_set;
+        for (const auto& c : food_consumed)
+            consumed_set.insert(c.second);
+        for (int idx : consumed_set) {
+            if (idx >= 0 && idx < static_cast<int>(food_list.size()))
+                food_list.erase(food_list.begin() + idx);
+        }
     }
 
     check_food_reset();
@@ -241,8 +235,35 @@ void Environment::run_learning_step() {
         }
     }
 
+    // Save brain when best_food_ever improves significantly (≥5 new food, not every step)
+    {
+        int cur_best = best_food_ever.load();
+        if (cur_best >= last_saved_best_food_ + 5) {
+            last_saved_best_food_ = cur_best;
+            int best_idx = 0;
+            for (size_t i = 0; i < agents.size(); ++i)
+                if (agents[i].total_food_eaten > agents[best_idx].total_food_eaten)
+                    best_idx = i;
+            try {
+                agents[best_idx].save_brain_to_file(brain_file_path());
+                std::cout << "Brain saved: " << cur_best << " food\n";
+            } catch (const std::exception& e) {
+                std::cerr << "Auto-save error: " << e.what() << "\n";
+            }
+        }
+    }
+
+    // Reset stagnation counter if best_food_ever improved since last check
+    int current_best = best_food_ever.load();
+    if (current_best > stagnation_baseline_) {
+        steps_since_last_reset_ = 0;
+        stagnation_baseline_ = current_best;
+    }
+
+    // Generation reset when all dead OR stagnation (3000 steps without progress)
     bool all_dead = (alive_count == 0);
-    if (all_dead) reset();
+    bool stagnant = (steps_since_last_reset_ >= 3000);
+    if (all_dead || stagnant) reset();
 }
 
 bool Environment::is_running() const { return simulation_running.load(); }
@@ -282,5 +303,9 @@ double Environment::get_avg_exploration_rate() const {
 }
 
 const std::vector<AI>& Environment::get_agents() const { return agents; }
+
+int Environment::get_best_food_ever() const {
+    return best_food_ever.load();
+}
 
 const std::vector<Food>& Environment::get_food_list() const { return food_list; }

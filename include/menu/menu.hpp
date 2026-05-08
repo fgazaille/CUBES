@@ -21,6 +21,7 @@ class Environment;
 struct TrainingFoodPoint {
     int episodes_done;
     int best_food;
+    int total_food;
 };
 
 struct TrainingConfig {

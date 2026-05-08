@@ -237,7 +237,7 @@ void Menu::do_training_active() {
     int graph_x = 60;
     int graph_y = 190;
     int graph_w = cw - 120;
-    int graph_h = 140;
+    int graph_h = 160;
 
     DrawRectangleRounded({(float)graph_x, (float)graph_y, (float)graph_w, (float)graph_h}, 0.1f, 8, CLITERAL(Color){22,27,34,255});
 
@@ -247,54 +247,105 @@ void Menu::do_training_active() {
         history = training_status_ptr_->food_history;
     }
 
-    int max_food = 10;
+    int max_best = 10;
+    int max_rate = 10;
     int min_ep = 0;
     int max_ep = 1;
     for (const auto& p : history) {
-        if (p.best_food > max_food) max_food = p.best_food;
+        if (p.best_food > max_best) max_best = p.best_food;
         if (p.episodes_done < min_ep) min_ep = p.episodes_done;
         if (p.episodes_done > max_ep) max_ep = p.episodes_done;
     }
-    max_food = std::max(10, ((max_food / 10) + 1) * 10);
+    // Compute max rate (food per 100 steps) from total_food diffs
+    for (size_t j = 1; j < history.size(); ++j) {
+        int rate = history[j].total_food - history[j-1].total_food;
+        if (rate > max_rate) max_rate = rate;
+    }
+    max_best = std::max(10, ((max_best / 10) + 1) * 10);
+    max_rate = std::max(10, ((max_rate / 10) + 1) * 10);
     int ep_range = std::max(1, max_ep - min_ep);
 
     if (history.size() >= 2) {
-        int plot_x = graph_x + 35;
+        int plot_x = graph_x + 45;
         int plot_y = graph_y + 12;
-        int plot_w = graph_w - 50;
-        int plot_h = graph_h - 40;
+        int plot_w = graph_w - 90;
+        int plot_h = graph_h - 48;
 
+        Color best_col = {88, 166, 255, 255};
+        Color rate_col = {63, 185, 80, 255};
+
+        // ── Left Y-axis: Best Ever ────────────────────────────────────────
         for (int i = 0; i <= 4; ++i) {
             int ly = plot_y + plot_h - (plot_h * i / 4);
             DrawLine(plot_x, ly, plot_x + plot_w, ly, CLITERAL(Color){40,46,54,255});
-            std::string lbl = std::to_string(max_food * i / 4);
+            std::string lbl = std::to_string(max_best * i / 4);
             DrawText(lbl.c_str(), graph_x + 2, ly - 7, 9, CLITERAL(Color){100,108,118,255});
         }
+        DrawText("Best Ever", graph_x + 2, plot_y, 9, best_col);
 
-        DrawText("Food per Life", graph_x + 2, plot_y, 9, CLITERAL(Color){100,108,118,255});
+        // ── Right Y-axis: Food/100 steps ──────────────────────────────────
+        int rx = plot_x + plot_w + 4;
+        for (int i = 0; i <= 4; ++i) {
+            int ly = plot_y + plot_h - (plot_h * i / 4);
+            std::string lbl = std::to_string(max_rate * i / 4);
+            DrawText(lbl.c_str(), rx, ly - 7, 9, CLITERAL(Color){100,108,118,255});
+        }
+        DrawText("Rate", rx, plot_y, 9, rate_col);
 
-        std::string xlbl = "Episodes";
+        // ── X-axis ────────────────────────────────────────────────────────
+        std::string xlbl = "Steps";
         int xlw = MeasureText(xlbl.c_str(), 9);
         DrawText(xlbl.c_str(), plot_x + plot_w - xlw - 2, graph_y + graph_h - 18, 9, CLITERAL(Color){100,108,118,255});
 
-        // Single line for the one simulation
-        Color line_col = {88, 166, 255, 255};
+        // ── Trace 1: Best Ever ────────────────────────────────────────────
         for (size_t j = 1; j < history.size(); ++j) {
             int x1 = plot_x + (history[j-1].episodes_done - min_ep) * plot_w / ep_range;
-            int y1 = plot_y + plot_h - history[j-1].best_food * plot_h / max_food;
+            int y1 = plot_y + plot_h - history[j-1].best_food * plot_h / max_best;
             int x2 = plot_x + (history[j].episodes_done - min_ep) * plot_w / ep_range;
-            int y2 = plot_y + plot_h - history[j].best_food * plot_h / max_food;
-            DrawLine(x1, y1, x2, y2, line_col);
+            int y2 = plot_y + plot_h - history[j].best_food * plot_h / max_best;
+            DrawLine(x1, y1, x2, y2, best_col);
+        }
+        {
+            const auto& last = history.back();
+            int lx = plot_x + (last.episodes_done - min_ep) * plot_w / ep_range;
+            int ly = plot_y + plot_h - last.best_food * plot_h / max_best;
+            DrawCircle(lx, ly, 4, best_col);
+            std::string val = std::to_string(last.best_food);
+            int vw = MeasureText(val.c_str(), 11);
+            DrawText(val.c_str(), lx - vw / 2, ly - 16, 11, CLITERAL(Color){201,209,217,255});
         }
 
-        // Last dot + value label
-        const auto& last = history.back();
-        int lx = plot_x + (last.episodes_done - min_ep) * plot_w / ep_range;
-        int ly = plot_y + plot_h - last.best_food * plot_h / max_food;
-        DrawCircle(lx, ly, 4, line_col);
-        std::string val = std::to_string(last.best_food);
-        int vw = MeasureText(val.c_str(), 11);
-        DrawText(val.c_str(), lx - vw / 2, ly - 16, 11, CLITERAL(Color){201,209,217,255});
+        // ── Trace 2: Food/100 steps (right Y-axis) ────────────────────────
+        for (size_t j = 1; j < history.size(); ++j) {
+            int rate = history[j].total_food - history[j-1].total_food;
+            int prev_rate = (j > 1) ? (history[j-1].total_food - history[j-2].total_food) : 0;
+            int x1 = plot_x + (history[j-1].episodes_done - min_ep) * plot_w / ep_range;
+            int y1 = plot_y + plot_h - prev_rate * plot_h / max_rate;
+            int x2 = plot_x + (history[j].episodes_done - min_ep) * plot_w / ep_range;
+            int y2 = plot_y + plot_h - rate * plot_h / max_rate;
+            Color rc = rate_col;
+            rc.a = 200;
+            DrawLine(x1, y1, x2, y2, rc);
+        }
+        // Last dot for rate
+        if (history.size() >= 2) {
+            int last_rate = history.back().total_food - history[history.size()-2].total_food;
+            const auto& lp = history.back();
+            int lx = plot_x + (lp.episodes_done - min_ep) * plot_w / ep_range;
+            int ly = plot_y + plot_h - last_rate * plot_h / max_rate;
+            DrawCircle(lx, ly, 3, rate_col);
+        }
+
+        // ── Legend ────────────────────────────────────────────────────────
+        {
+            int lx = plot_x;
+            int ly = graph_y + graph_h - 16;
+            DrawRectangle(lx, ly, 8, 8, best_col);
+            DrawText(" Best", lx + 10, ly - 2, 10, CLITERAL(Color){201,209,217,255});
+            lx += 55;
+            DrawRectangle(lx, ly, 8, 8, rate_col);
+            DrawText(" Rate", lx + 10, ly - 2, 10, CLITERAL(Color){201,209,217,255});
+        }
     } else {
         DrawText("Collecting data...", graph_x + 40, graph_y + graph_h / 2 - 8, 14, CLITERAL(Color){100,108,118,255});
     }

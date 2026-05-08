@@ -2,6 +2,7 @@
 #include "environment.hpp"
 #include "renderer.hpp"
 #include "menu.hpp"
+#include "debug_repl.hpp"
 #include <sstream>
 #include <string>
 #include <thread>
@@ -168,6 +169,9 @@ static void run_training(const TrainingConfig& config, TrainingStatus* status) {
     status->best_food.store(0);
     status->auto_save = config.auto_save;
 
+    if (status->thread.joinable())
+        status->thread.join();
+
     status->thread = std::thread([status, config]() {
         auto& env = status->env;
         env = std::make_unique<Environment>(true);
@@ -195,37 +199,23 @@ static void run_training(const TrainingConfig& config, TrainingStatus* status) {
                 status->episodes_done.fetch_add(10);
 
             if (episode_counter % 100 == 0) {
-                int cb = env->get_last_gen_best_food();
+                int cb = env->get_best_food_ever();
 
+                int total_food = env->get_total_food_all_time();
                 {
                     std::lock_guard<std::mutex> hlock(status->history_mutex);
-                    status->food_history.push_back({status->episodes_done.load(), cb});
+                    status->food_history.push_back({status->episodes_done.load(), cb, total_food});
                     if (status->food_history.size() > 5000)
                         status->food_history.erase(status->food_history.begin());
                 }
 
+                if (cb > status->best_food.load()) {
+                    status->best_food.store(cb);
+                }
+
                 if (cb != last_best) {
                     last_best = cb;
-                    std::cout << "Ep " << (ep + 1) << " Best: " << cb << " food\n";
-
-                    if (cb > status->best_food.load()) {
-                        status->best_food.store(cb);
-                    }
-
-                    if (config.auto_save) {
-                        try {
-                            // Save best agent's brain
-                            int best_idx = 0;
-                            for (size_t i = 0; i < env->get_agents().size(); ++i) {
-                                if (env->get_agents()[i].total_food_eaten >
-                                    env->get_agents()[best_idx].total_food_eaten)
-                                    best_idx = i;
-                            }
-                            env->get_agents()[best_idx].save_brain_to_file(brain_file_path());
-                        } catch (const std::exception& e) {
-                            std::cerr << "Auto-save error: " << e.what() << "\n";
-                        }
-                    }
+                    std::cout << "Step " << (ep + 1) << " Best: " << cb << " food\n";
                 }
             }
         }
@@ -239,7 +229,26 @@ static void run_training(const TrainingConfig& config, TrainingStatus* status) {
 // Main
 // ============================================================================
 
-int main(int, char**) {
+int main(int argc, char** argv) {
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--repl") {
+            run_debug_repl();
+            return 0;
+        }
+        if (std::string(argv[i]) == "--brain" && i + 1 < argc) {
+            std::string src = argv[++i];
+            std::string dst = brain_file_path();
+            std::ifstream in(src, std::ios::binary);
+            if (!in) {
+                std::cerr << "Failed to open brain: " << src << "\n";
+                return 1;
+            }
+            std::ofstream out(dst, std::ios::binary);
+            out << in.rdbuf();
+            std::cout << "Preloaded brain: " << src << "\n";
+        }
+    }
+
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(800, 600, "CUBES");
     MaximizeWindow();

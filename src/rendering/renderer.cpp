@@ -3,6 +3,7 @@
 #include <iomanip>
 #include <cmath>
 #include <algorithm>
+#include <set>
 
 namespace {
     Texture2D agent_tex{};
@@ -105,21 +106,24 @@ void render_environment(const Environment& env,
 
     // ── Record food history ───────────────────────────────────────────────
     {
+        static int last_food_recorded[16] = {};
         int ep = env.get_episode();
         const auto& agents = env.get_agents();
         if (ep < last_recorded_episode || (int)agents.size() != last_agent_count) {
             clear_food_history();
             last_agent_count = (int)agents.size();
+            for (int i = 0; i < 16; ++i) last_food_recorded[i] = -1;
         }
-        if (ep != last_recorded_episode) {
-            last_recorded_episode = ep;
-            for (size_t i = 0; i < agents.size() && i < 16; ++i) {
-                auto& hist = agent_history[i];
-                hist.push_back({ep, agents[i].total_food_eaten});
-                if (hist.size() > MAX_HISTORY)
-                    hist.erase(hist.begin());
-            }
+        for (size_t i = 0; i < agents.size() && i < 16; ++i) {
+            int food = agents[i].total_food_eaten;
+            if (food == last_food_recorded[i]) continue;
+            last_food_recorded[i] = food;
+            auto& hist = agent_history[i];
+            hist.push_back({ep, food});
+            if (hist.size() > MAX_HISTORY)
+                hist.erase(hist.begin());
         }
+        last_recorded_episode = ep;
     }
 
     // ── Grid ────────────────────────────────────────────────────────────────
@@ -241,18 +245,21 @@ void render_environment(const Environment& env,
     }
     max_food = ((max_food / 10) + 1) * 10;
 
-    // Build best-food-per-episode trace (histories are episode-synced)
+    // Build best-food-per-episode trace (across all recorded episodes)
     std::vector<FoodPoint> best_trace;
     {
-        size_t hist_len = 0;
+        // Collect unique episodes from all histories
+        std::set<int> all_eps;
         for (const auto& h : agent_history)
-            if (!h.empty()) { hist_len = h.size(); break; }
-        for (size_t j = 0; j < hist_len; ++j) {
-            int ep = 0, best = 0;
+            for (const auto& p : h)
+                all_eps.insert(p.episode);
+        for (int ep : all_eps) {
+            int best = 0;
             for (const auto& h : agent_history) {
-                if (j >= h.size()) continue;
-                ep = h[j].episode;
-                if (h[j].food > best) best = h[j].food;
+                for (const auto& p : h) {
+                    if (p.episode == ep && p.food > best)
+                        best = p.food;
+                }
             }
             best_trace.push_back({ep, best});
         }
