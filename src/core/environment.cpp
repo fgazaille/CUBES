@@ -25,7 +25,8 @@ Environment::Environment(bool)
       thread_pool(NUM_THREADS),
       env_gen(std::random_device{}()),
       avg_food_per_episode(0),
-      episode_count_for_avg(0) {
+      episode_count_for_avg(0),
+      training_step(0) {
     
     RuntimeConfig& cfg = RuntimeConfig::instance();
     
@@ -182,6 +183,8 @@ void Environment::reset() {
 // ============================================================================
 
 void Environment::run_learning_step() {
+    training_step++;
+    
     // Collect food consumption results from parallel agent processing
     std::vector<std::pair<int, int>> food_consumed;  // agent_idx, food_idx
     std::mutex consumed_mutex;
@@ -253,8 +256,7 @@ void Environment::run_learning_step() {
             if (agent.energy <= 0) {
                 agent.energy = 0;  // Ensure energy is 0
                 reward -= 20.0;
-                // Note: total_food_eaten is NOT reset - we need it for parent selection
-                agent_done = true;  // Agent is actually done
+                agent_done = true;  // Agent is done
             }
             
             // === Store experience ===
@@ -266,6 +268,16 @@ void Environment::run_learning_step() {
             
             // === Decay exploration ===
             agent.decay_exploration();
+            
+            // === Respawn if dead (experience already stored with done=true) ===
+            if (agent_done) {
+                {
+                    std::lock_guard<std::mutex> lock(consumed_mutex);
+                    std::cout << "Agent " << idx << " died! Respawning..." << std::endl;
+                    agent_food_history[idx].push_back(agent.total_food_eaten);
+                }
+                agent.respawn();
+            }
         });
     }
     
@@ -322,6 +334,14 @@ int Environment::get_episode() const {
 
 std::vector<AI>& Environment::get_agents() {
     return agents;
+}
+
+const std::vector<std::vector<int>>& Environment::get_agent_food_history() const {
+    return agent_food_history;
+}
+
+int Environment::get_training_step() const {
+    return training_step;
 }
 
 int Environment::get_total_food_spawned() const { 

@@ -10,6 +10,8 @@
 #include <sstream>
 #include <iomanip>
 #include <unordered_map>
+#include <algorithm>
+#include <cstdio>
 
 // ============================================================================
 // Text Cache Implementation
@@ -285,7 +287,7 @@ void render_environment(SDL_Renderer* renderer, const Environment& env,
                 grid_pixel_width + 10, 310, 
                 {COLOR_HEADER.r, COLOR_HEADER.g, COLOR_HEADER.b, 255});
     
-    int agentY = 340;
+    int agentY = 335;
     char agent_id = 'A';
     
     for (size_t i = 0; i < env.get_agents().size(); ++i, ++agent_id) {
@@ -295,7 +297,7 @@ void render_environment(SDL_Renderer* renderer, const Environment& env,
         SDL_SetRenderDrawColor(renderer, 60, 60, 80, 
                               agent.is_alive() ? 255 : 100);
         SDL_Rect agent_rect = {grid_pixel_width + 5, agentY, 
-                               SIDEBAR_WIDTH - 10, 75};
+                               SIDEBAR_WIDTH - 10, 55};
         SDL_RenderFillRect(renderer, &agent_rect);
         
         // Agent name with custom color
@@ -308,30 +310,27 @@ void render_environment(SDL_Renderer* renderer, const Environment& env,
             agent_color.b *= 0.5;
         }
         render_text(renderer, regular_font, name.str(), 
-                    grid_pixel_width + 15, agentY + 5, agent_color);
+                    grid_pixel_width + 15, agentY + 4, agent_color);
         
         // Status (Active/Inactive)
         render_text(renderer, regular_font, 
                     agent.is_alive() ? "Active" : "Inactive", 
-                    grid_pixel_width + SIDEBAR_WIDTH - 80, agentY + 5, 
+                    grid_pixel_width + SIDEBAR_WIDTH - 80, agentY + 4,
                     agent.is_alive() ? SDL_Color{0, 200, 0, 255} 
                                       : SDL_Color{200, 0, 0, 255});
         
-        // Food eaten
+        // Food eaten + Energy bar on same line
         std::stringstream food_eaten;
-        food_eaten << "Food: " << agent.total_food_eaten;
+        food_eaten << agent.total_food_eaten << " food";
         render_text(renderer, regular_font, food_eaten.str(), 
-                    grid_pixel_width + 15, agentY + 30, text_color);
+                    grid_pixel_width + 15, agentY + 22, text_color);
         
-        // Energy bar
-        render_text(renderer, regular_font, "Energy:", 
-                    grid_pixel_width + 15, agentY + 50, text_color);
-        render_progress_bar(renderer, grid_pixel_width + 80, agentY + 53, 
-                            SIDEBAR_WIDTH - 100, 15, 
+        render_progress_bar(renderer, grid_pixel_width + 80, agentY + 24,
+                            SIDEBAR_WIDTH - 100, 12,
                             agent.get_energy_percentage(), 
                             COLOR_AGENT_ENERGY_BAR, COLOR_AGENT_ENERGY_BG);
         
-        agentY += 85;
+        agentY += 60;
     }
     
     // === Controls Section ===

@@ -326,8 +326,15 @@ std::optional<Position> AI::find_closest_food(const std::vector<Food>& food_list
 }
 
 // ============================================================================
-// Environment Interaction
+// Environment interaction
 // ============================================================================
+
+void AI::respawn() {
+    energy = MAX_ENERGY;
+    pos.x = gen() % RuntimeConfig::instance().grid_size;
+    pos.y = gen() % RuntimeConfig::instance().grid_size;
+    total_food_eaten = 0;
+}
 
 void AI::move(int action) {
     RuntimeConfig& cfg = RuntimeConfig::instance();

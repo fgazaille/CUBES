@@ -189,6 +189,14 @@ public:
     // ========================================================================
 
     /**
+     * @brief Respawn the agent after death.
+     * 
+     * Resets position, energy, and food count.
+     * Preserves neural networks and experience buffer.
+     */
+    void respawn();
+
+    /**
      * @brief Move the agent in the specified direction.
      * 
      * Handles boundary checking and energy consumption.
