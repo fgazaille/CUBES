@@ -182,6 +182,16 @@ void Environment::run_learning_step() {
             agent.add_experience(current_state, action, reward, next_state, agent_done);
             agent.learn_from_experience();
             agent.decay_exploration();
+            
+            // === Respawn if dead (experience already stored with done=true) ===
+            if (agent_done) {
+                {
+                    std::lock_guard<std::mutex> lock(consumed_mutex);
+                    std::cout << "Agent " << idx << " died! Respawning..." << std::endl;
+                    agent_food_history[idx].push_back(agent.total_food_eaten);
+                }
+                agent.respawn();
+            }
         });
     }
 
