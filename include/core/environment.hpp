@@ -2,26 +2,25 @@
  * @file environment.hpp"
  * @brief Simulation environment managing agents, food, and episodes."
  * "
- * The Environment:"
- * - Manages multiple AI agents"
- * - Spawns and tracks food items"
- * - Runs simulation steps (agent decisions, moves, rewards)"
- * - Handles episode resets and evolution (selection, crossover, mutation)"
- * - Uses a thread pool for parallel agent processing"
- * "
- * The simulation follows an episodic structure where agents collect food"
- * to maintain energy. When all agents die, a new generation is created"
- * through genetic algorithms."
+ * The Environment:
+ * - Manages multiple AI agents
+ * - Spawns and tracks food items
+ * - Runs simulation steps (agent decisions, moves, rewards)
+ * - Handles episode resets and evolution (selection, crossover, mutation)
+ *
+ * The simulation follows an episodic structure where agents collect food
+ * to maintain energy. When all agents die, a new generation is created
+ * through genetic algorithms.
  */
 
 #pragma once
 
 #include "ai_agent.hpp"
 #include "config.hpp"
-#include <vector>
-#include <mutex>
-#include <atomic>
 #include "BS_thread_pool.hpp"
+#include <vector>
+#include <atomic>
+#include <mutex>
 
 /**
  * @brief Simulation environment for AI agents.
@@ -38,39 +37,26 @@ private:
     std::vector<Food> food_list;          ///< Currently available food items
     int episode;                           ///< Current episode number
     int total_food_spawned;               ///< Total food spawned (for stats)
-    std::mutex food_mutex;                ///< Protects food_list modifications
-    std::mutex agent_mutex;               ///< Protects agent state changes
     std::atomic<bool> simulation_running;  ///< Controls simulation thread
-    BS::thread_pool<> thread_pool;        ///< Thread pool for parallel processing
     std::vector<int> first_episode_food_stats; ///< Food stats from episode 1
     std::mt19937 env_gen;                 ///< Random generator for environment
+    BS::light_thread_pool pool;           ///< Thread pool for parallel agent processing
     
     // Learning metrics
     std::atomic<int> total_food_eaten_this_episode{0}; ///< Track food eaten per episode
     double avg_food_per_episode;          ///< Running average of food per episode
     int episode_count_for_avg;             ///< Count for calculating average
+    int last_gen_best_food = 0;            ///< Best food in the most recently completed generation
 
-    /**
-     * @brief Select top-performing agents as parents for next generation.
-     * 
-     * Uses tournament selection based on total food eaten.
-     * 
-     * @param num_parents Number of parents to select
-     * @return Vector of parent agents (sorted by performance)
-     */
-    std::vector<AI> select_parents(int num_parents);
+    // Respawn tracking
+    std::vector<int> respawn_counters;     ///< Frames until dead agents respawn (0 = alive or no delay pending)
 
-    /**
-     * @brief Perform uniform crossover between two parent genomes.
-     * 
-     * Each gene has 50% chance of coming from either parent.
-     * 
-     * @param parent1 First parent's genome
-     * @param parent2 Second parent's genome
-     * @return Child genome
-     */
-    std::vector<double> crossover(const std::vector<double>& parent1, 
-                                 const std::vector<double>& parent2);
+    // Continuous best-food tracking (for live training progress)
+    std::atomic<int> best_food_ever{0};           ///< All-time best food eaten by any single agent
+    int last_saved_best_food_ = 0;                ///< Last best_food_ever value that triggered a brain save
+    int steps_since_last_reset_ = 0;              ///< Steps since the last generation reset
+    int stagnation_baseline_ = 0;                 ///< best_food_ever value at last stagnation check
+    std::atomic<int> total_food_eaten_all_time{0}; ///< Total food across all agents and episodes
 
     /**
      * @brief Apply random mutations to a genome.
@@ -82,8 +68,7 @@ private:
     /**
      * @brief Spawn new food items on the grid.
      * 
-     * Clears existing food and spawns FOOD_COUNT new items
-     * with random positions and energy values.
+     * Spawns just enough food to reach cfg.food_count if below threshold.
      */
     void spawn_food();
 
@@ -100,6 +85,8 @@ public:
      * @return Agent count
      */
     int get_agent_count() const { return agents.size(); }
+
+    int get_total_food_all_time() const { return total_food_eaten_all_time.load(); }
     
     /**
      * @brief Check and respawn food if below threshold.
@@ -169,6 +156,18 @@ public:
      */
     int get_current_episode_food() const;
     
+    /**
+     * @brief Get best food from the most recently completed generation.
+     * @return Best food count from last generation
+     */
+    int get_last_gen_best_food() const;
+
+    /**
+     * @brief Get all-time best food eaten by any agent.
+     * @return Best food count ever
+     */
+    int get_best_food_ever() const;
+
     /**
      * @brief Get average exploration rate across all agents.
      * @return Average epsilon value

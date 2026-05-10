@@ -28,3 +28,7 @@ docs/latex/
 *.tmp
 *.log
 session-*.md
+test_nn
+
+# Test binary
+test_nn

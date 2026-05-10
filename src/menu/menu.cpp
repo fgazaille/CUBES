@@ -1,817 +1,454 @@
-/**
- * @file menu.cpp
- * @brief Implementation of the home menu system.
- */
-
+#define RAYGUI_IMPLEMENTATION
 #include "menu.hpp"
+#include "environment.hpp"
 #include <sstream>
 #include <cmath>
-#include <fstream>
-#include <unordered_map>
+#include <cstring>
 
-// ============================================================================
-// Text Cache for Menu Rendering
-// ============================================================================
+// ── Ctor ─────────────────────────────────────────────────────────────────────
 
-namespace {
-    struct MenuTextCacheKey {
-        std::string text;
-        SDL_Color color;
-        
-        bool operator==(const MenuTextCacheKey& other) const {
-            return text == other.text && 
-                   color.r == other.color.r && color.g == other.color.g &&
-                   color.b == other.color.b && color.a == other.color.a;
-        }
-    };
-    
-    struct MenuTextCacheKeyHash {
-        std::size_t operator()(const MenuTextCacheKey& k) const {
-            return std::hash<std::string>{}(k.text) ^ 
-                   (k.color.r << 24 | k.color.g << 16 | k.color.b << 8 | k.color.a);
-        }
-    };
-    
-    struct CachedMenuText {
-        SDL_Texture* texture;
-        int width;
-        int height;
-        
-        CachedMenuText() : texture(nullptr), width(0), height(0) {}
-        CachedMenuText(SDL_Texture* tex, int w, int h) : texture(tex), width(w), height(h) {}
-    };
-    
-    std::unordered_map<MenuTextCacheKey, CachedMenuText, MenuTextCacheKeyHash> menu_text_cache;
-    TTF_Font* last_menu_font = nullptr;
+Menu::Menu(TrainingStatus* training_status)
+    : training_status_ptr_(training_status) {
+    snprintf(ep_buf_, sizeof(ep_buf_), "%d", training_config_.episodes);
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 16);
+    GuiSetStyle(DEFAULT, BACKGROUND_COLOR, ColorToInt(CLITERAL(Color){13,17,23,255}));
+    GuiSetStyle(BUTTON, BASE_COLOR_NORMAL,   ColorToInt(CLITERAL(Color){30,36,44,255}));
+    GuiSetStyle(BUTTON, TEXT_COLOR_NORMAL,   ColorToInt(CLITERAL(Color){201,209,217,255}));
+    GuiSetStyle(BUTTON, BASE_COLOR_FOCUSED,  ColorToInt(CLITERAL(Color){48,54,61,255}));
+    GuiSetStyle(BUTTON, BASE_COLOR_PRESSED,  ColorToInt(CLITERAL(Color){56,58,89,255}));
+    GuiSetStyle(BUTTON, BORDER_COLOR_NORMAL, ColorToInt(CLITERAL(Color){48,54,61,255}));
+    GuiSetStyle(DEFAULT, TEXT_COLOR_NORMAL,  ColorToInt(CLITERAL(Color){201,209,217,255}));
+    GuiSetStyle(DEFAULT, TEXT_COLOR_FOCUSED, ColorToInt(CLITERAL(Color){88,166,255,255}));
 }
 
-void clear_menu_text_cache() {
-    for (auto& pair : menu_text_cache) {
-        if (pair.second.texture) {
-            SDL_DestroyTexture(pair.second.texture);
-        }
-    }
-    menu_text_cache.clear();
-    last_menu_font = nullptr;
-}
-
-void render_cached_menu_text(SDL_Renderer* renderer, TTF_Font* font, 
-                             const std::string& text, int x, int y, SDL_Color color) {
-    if (!font || !renderer) return;
-    
-    if (font != last_menu_font) {
-        clear_menu_text_cache();
-        last_menu_font = font;
-    }
-    
-    MenuTextCacheKey key{text, color};
-    auto it = menu_text_cache.find(key);
-    
-    if (it == menu_text_cache.end()) {
-        SDL_Surface* surface = TTF_RenderText_Blended(font, text.c_str(), color);
-        if (!surface) return;
-        
-        SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
-        if (!texture) {
-            SDL_FreeSurface(surface);
-            return;
-        }
-        
-        CachedMenuText cached{texture, surface->w, surface->h};
-        SDL_FreeSurface(surface);
-        
-        it = menu_text_cache.emplace(key, cached).first;
-    }
-    
-    const CachedMenuText& cached = it->second;
-    SDL_Rect rect = {x, y, cached.width, cached.height};
-    SDL_RenderCopy(renderer, cached.texture, NULL, &rect);
-}
-
-// ============================================================================
-// Menu Construction/Destruction
-// ============================================================================
-
-Menu::Menu(SDL_Renderer* renderer,
-             TTF_Font* title_font, TTF_Font* button_font, TTF_Font* text_font,
-             TrainingStatus* training_status)
-    : renderer_(renderer), title_font_(title_font), 
-      button_font_(button_font), text_font_(text_font),
-      current_state_(MenuState::HOME),
-      training_status_ptr_(training_status) {
-    start_time_ = SDL_GetTicks();
-    init_home_buttons();
-    stop_button_rect_ = {350, 400, 100, 45};
-}
-
-Menu::~Menu() {
-    clear_menu_text_cache();
-}
-
-// ============================================================================
-// Initialization
-// ============================================================================
-
-void Menu::init_home_buttons() {
-    home_buttons_.clear();
-    home_buttons_.push_back({{300, 160, 200, 45}, "Start Simulation", false});
-    home_buttons_.push_back({{300, 215, 200, 45}, "Training", false});
-    home_buttons_.push_back({{300, 270, 200, 45}, "Settings", false});
-    home_buttons_.push_back({{300, 325, 200, 45}, "About", false});
-    home_buttons_.push_back({{300, 380, 200, 45}, "Exit", false});
-}
-
-// ============================================================================
-// Rendering Helpers
-// ============================================================================
-
-int Menu::center_x(int element_width, int total_width) {
-    return (total_width - element_width) / 2;
-}
-
-int Menu::center_text_x(const std::string& text, TTF_Font* font, int total_width) {
-    if (!font) return 0;
-    int w, h;
-    TTF_SizeText(font, text.c_str(), &w, &h);
-    return center_x(w, total_width);
-}
-
-void Menu::render_text(const std::string& text, int x, int y, 
-                       TTF_Font* font, SDL_Color color) {
-    if (!font || !renderer_) return;
-    // Use cached text rendering
-    render_cached_menu_text(renderer_, font, text, x, y, color);
-}
-
-void Menu::render_button(const MenuButton& button) {
-    SDL_Color color = button.hovered ? SDL_Color{100,100,255,255} : SDL_Color{220,220,240,255};
-    SDL_SetRenderDrawColor(renderer_, color.r, color.g, color.b, color.a);
-    SDL_RenderFillRect(renderer_, &button.rect);
-    SDL_SetRenderDrawColor(renderer_, 60,60,80,255);
-    SDL_RenderDrawRect(renderer_, &button.rect);
-    
-    SDL_Color text_color = {0,0,0,255};
-    SDL_Surface* surface = TTF_RenderText_Blended(button_font_, button.text.c_str(), text_color);
-    if (surface) {
-        SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer_, surface);
-        if (texture) {
-            int text_x = button.rect.x + (button.rect.w - surface->w)/2;
-            int text_y = button.rect.y + (button.rect.h - surface->h)/2;
-            SDL_Rect rect = {text_x, text_y, surface->w, surface->h};
-            SDL_RenderCopy(renderer_, texture, NULL, &rect);
-            SDL_DestroyTexture(texture);
-        }
-        SDL_FreeSurface(surface);
-    }
-}
-
-// ============================================================================
-// Render Screens
-// ============================================================================
-
-void Menu::render_home() {
-    Uint32 elapsed = SDL_GetTicks() - start_time_;
-    double pulse = std::sin(elapsed * 0.002) * 0.15 + 0.85;
-    mouse_x_ = 0; mouse_y_ = 0;
-    SDL_GetMouseState(&mouse_x_, &mouse_y_);
-    
-    // Subtle animated gradient background
-    for (int y = 0; y < 600; y += 10) {
-        Uint8 shade = static_cast<Uint8>(20 + 8.0 * std::sin((y + elapsed * 0.15) * 0.02));
-        SDL_SetRenderDrawColor(renderer_, shade, shade, static_cast<Uint8>(35 + 5 * pulse), 255);
-        SDL_Rect row = {0, y, 800, 10};
-        SDL_RenderFillRect(renderer_, &row);
-    }
-    
-    // Check if ./build/brain.json exists and show status
-    bool brain_exists = std::ifstream("./build/brain.json").good();
-    
-    int title_x = center_text_x("CUBES", title_font_);
-    render_text("CUBES", title_x, 50, title_font_, {190,190,255,255});
-    int subtitle_x = center_text_x("AI Learning Simulation", text_font_);
-    render_text("AI Learning Simulation", subtitle_x, 120, text_font_, {210,210,240,255});
-    int hint_x = center_text_x("Use mouse or ENTER to choose. ESC returns.", text_font_);
-    render_text("Use mouse or ENTER to choose. ESC returns.", hint_x, 150, text_font_, {170,170,210,255});
-    
-    int hovered_index = -1;
-    for (size_t i = 0; i < home_buttons_.size(); ++i) {
-        auto& button = home_buttons_[i];
-        SDL_Point p = {mouse_x_, mouse_y_};
-        button.hovered = SDL_PointInRect(&p, &button.rect);
-        if (button.hovered) hovered_index = static_cast<int>(i);
-        render_button(button);
-    }
-    
-    if (hovered_index >= 0) {
-        selected_home_button_index_ = hovered_index;
-    }
-
-    // Highlight current keyboard-selected button when not hovered
-    if (hovered_index < 0 && selected_home_button_index_ >= 0 && selected_home_button_index_ < static_cast<int>(home_buttons_.size())) {
-        auto& button = home_buttons_[selected_home_button_index_];
-        SDL_SetRenderDrawColor(renderer_, 160, 160, 255, 128);
-        SDL_RenderFillRect(renderer_, &button.rect);
-        render_button(button);
-    }
-    
-    // Show ./build/brain.json status
-    if (brain_exists) {
-        render_text("Brain file found - will auto-load", 550, 570, text_font_, {140,180,140,255});
-    } else {
-        render_text("No brain file - agents will use random brains", 550, 570, text_font_, {180,140,140,255});
-    }
-    
-    SDL_RenderPresent(renderer_);
-}
-
-// ============================================================================
-// Training Screen
-// ============================================================================
-
-void Menu::render_about() {
-    SDL_SetRenderDrawColor(renderer_, 14, 18, 30, 255);
-    SDL_RenderClear(renderer_);
-    
-    int title_x = center_text_x("About CUBES", title_font_);
-    render_text("About CUBES", title_x, 50, title_font_, {190, 190, 255, 255});
-    
-    int y = 120;
-    render_text("CUBES - AI Learning Simulation", 100, y, text_font_, {220, 220, 240, 255});
-    y += 40;
-    render_text("Version 2.0 - Refactored", 100, y, text_font_, {200, 200, 220, 255});
-    y += 40;
-    render_text("Uses Deep Q-Network (DQN) reinforcement learning", 100, y, text_font_, {200, 200, 220, 255});
-    y += 30;
-    render_text("Agents learn to collect food and survive", 100, y, text_font_, {200, 200, 220, 255});
-    y += 30;
-    render_text("Genetic algorithms evolve better agents each generation", 100, y, text_font_, {200, 200, 220, 255});
-    y += 50;
-    render_text("Controls:", 100, y, text_font_, {220, 220, 240, 255});
-    y += 30;
-    render_text("ESC - Exit | R - Reset | Space - Pause", 100, y, text_font_, {180, 180, 200, 255});
-    y += 25;
-    render_text("W - Toggle Warp | +/- - Warp Speed", 100, y, text_font_, {180, 180, 200, 255});
-    y += 25;
-    render_text("D - Debug Mode | S - Save Brain | L - Load Brain", 100, y, text_font_, {180, 180, 200, 255});
-    y += 25;
-    render_text("F5 - Save State | F9 - Load State", 100, y, text_font_, {180, 180, 200, 255});
-    y += 50;
-    
-    int back_x = center_x(100);
-    SDL_Rect back_rect = {back_x, 500, 100, 40};
-    SDL_SetRenderDrawColor(renderer_, 60, 60, 80, 255);
-    SDL_RenderFillRect(renderer_, &back_rect);
-    SDL_SetRenderDrawColor(renderer_, 100, 100, 170, 255);
-    SDL_RenderDrawRect(renderer_, &back_rect);
-    render_text("Back", back_x + 25, 510, text_font_, {220, 220, 240, 255});
-    
-    SDL_RenderPresent(renderer_);
-}
-
-// ============================================================================
-// Training Active Screen (Progress Bar + Stop Button)
-// ============================================================================
-
-void Menu::render_training_active() {
-    SDL_SetRenderDrawColor(renderer_, 14, 18, 30, 255);
-    SDL_RenderClear(renderer_);
-    
-    // Get progress from training_status_ptr_ if available
-    int episodes_done = 0;
-    int total_episodes = 0;
-    int threads = 0;
-    
-    if (training_status_ptr_ && training_status_ptr_->active.load()) {
-        episodes_done = training_status_ptr_->episodes_done.load();
-        total_episodes = training_status_ptr_->total_episodes.load();
-        threads = training_status_ptr_->total_threads.load();
-    }
-    
-    // Title
-    int title_x = center_text_x("Training in Progress", title_font_);
-    render_text("Training in Progress", title_x, 50, title_font_, {190, 190, 255, 255});
-    
-    // Info text
-    std::string info = "Threads: " + std::to_string(threads) + 
-                       " | Total episodes: " + std::to_string(total_episodes);
-    int info_x = center_text_x(info, text_font_);
-    render_text(info, info_x, 120, text_font_, {200, 200, 240, 255});
-    
-    // Progress bar background
-    SDL_Rect progress_bg = {150, 200, 500, 40};
-    SDL_SetRenderDrawColor(renderer_, 40, 44, 65, 255);
-    SDL_RenderFillRect(renderer_, &progress_bg);
-    SDL_SetRenderDrawColor(renderer_, 100, 100, 170, 255);
-    SDL_RenderDrawRect(renderer_, &progress_bg);
-    
-    // Progress bar fill
-    float progress = (total_episodes > 0) ? 
-                    static_cast<float>(episodes_done) / total_episodes : 0.0f;
-    progress = std::max(0.0f, std::min(1.0f, progress));
-    
-    SDL_Rect progress_fill = {150, 200, static_cast<int>(500 * progress), 40};
-    SDL_SetRenderDrawColor(renderer_, 80, 200, 80, 255);
-    SDL_RenderFillRect(renderer_, &progress_fill);
-    
-    // Progress text
-    std::string progress_text = std::to_string(episodes_done) + " / " +
-                                std::to_string(total_episodes) + " episodes";
-    int prog_x = center_text_x(progress_text, text_font_);
-    render_text(progress_text, prog_x, 250, text_font_, {255, 255, 255, 255});
-    
-    // Percentage
-    int percent = static_cast<int>(progress * 100);
-    std::string pct_text = std::to_string(percent) + "%";
-    int pct_x = center_text_x(pct_text, title_font_);
-    render_text(pct_text, pct_x, 300, title_font_, {220, 220, 255, 255});
-    
-    // Stop button
-    int mx, my;
-    SDL_GetMouseState(&mx, &my);
-    SDL_Point p = {mx, my};
-    bool stop_hovered = SDL_PointInRect(&p, &stop_button_rect_);
-    
-    SDL_Color stop_color = stop_hovered ? SDL_Color{255, 100, 100, 255} : SDL_Color{200, 60, 60, 255};
-    SDL_SetRenderDrawColor(renderer_, stop_color.r, stop_color.g, stop_color.b, stop_color.a);
-    SDL_RenderFillRect(renderer_, &stop_button_rect_);
-    SDL_SetRenderDrawColor(renderer_, 100, 100, 170, 255);
-    SDL_RenderDrawRect(renderer_, &stop_button_rect_);
-    render_text("STOP", stop_button_rect_.x + 25, stop_button_rect_.y + 12, button_font_, {255, 255, 255, 255});
-    
-    // Tip
-    int tip_x = center_text_x("Click STOP to cancel training", text_font_);
-    render_text("Click STOP to cancel training", tip_x, 470, text_font_, {180, 180, 220, 255});
-    
-    SDL_RenderPresent(renderer_);
-}
-
-void Menu::set_training_active(bool active, int total_episodes, int threads) {
-    if (training_status_ptr_) {
-        if (active) {
-            training_status_ptr_->active.store(true);
-            training_status_ptr_->episodes_done.store(0);
-            training_status_ptr_->total_episodes.store(total_episodes);
-            training_status_ptr_->total_threads.store(threads);
-        }
-    }
-    current_state_ = MenuState::TRAINING_ACTIVE;
-}
-
-bool Menu::is_training_active() const {
-    if (training_status_ptr_) {
-        return training_status_ptr_->active.load();
-    }
-    return false;
-}
-
-void Menu::render_training() {
-    SDL_SetRenderDrawColor(renderer_, 14, 18, 30, 255);
-    SDL_RenderClear(renderer_);
-    
-    int title_x = center_text_x("Training Configuration", title_font_);
-    render_text("Training Configuration", title_x, 20, title_font_, {190, 190, 255, 255});
-    int subtitle_x = center_text_x("Quickly tune training parameters before launching.", text_font_);
-    render_text("Quickly tune training parameters before launching.", subtitle_x, 90, text_font_, {200, 200, 240, 255});
-    
-    SDL_SetRenderDrawColor(renderer_, 30, 34, 55, 255);
-    SDL_Rect panel = {140, 130, 520, 340};
-    SDL_RenderFillRect(renderer_, &panel);
-    SDL_SetRenderDrawColor(renderer_, 100, 100, 170, 255);
-    SDL_RenderDrawRect(renderer_, &panel);
-    
-    render_text("Episodes:", 180, 170, text_font_, {220, 220, 240, 255});
-    SDL_Rect ep_field = {320, 165, 160, 36};
-    if (editing_field_ == EditField::EPISODES) {
-        SDL_SetRenderDrawColor(renderer_, 100, 100, 200, 255);
-    } else {
-        SDL_SetRenderDrawColor(renderer_, 60, 60, 80, 255);
-    }
-    SDL_RenderFillRect(renderer_, &ep_field);
-    SDL_SetRenderDrawColor(renderer_, 140, 140, 200, 255);
-    SDL_RenderDrawRect(renderer_, &ep_field);
-    std::string ep_display = (editing_field_ == EditField::EPISODES) ? input_buffer_ + "_" : std::to_string(training_config_.episodes);
-    render_text(ep_display, 330, 170, text_font_, {255, 255, 255, 255});
-    
-    render_text("Threads:", 180, 230, text_font_, {220, 220, 240, 255});
-    SDL_Rect th_field = {320, 225, 160, 36};
-    if (editing_field_ == EditField::THREADS) {
-        SDL_SetRenderDrawColor(renderer_, 100, 100, 200, 255);
-    } else {
-        SDL_SetRenderDrawColor(renderer_, 60, 60, 80, 255);
-    }
-    SDL_RenderFillRect(renderer_, &th_field);
-    SDL_SetRenderDrawColor(renderer_, 140, 140, 200, 255);
-    SDL_RenderDrawRect(renderer_, &th_field);
-    std::string th_display = (editing_field_ == EditField::THREADS) ? input_buffer_ + "_" : std::to_string(training_config_.threads);
-    render_text(th_display, 330, 230, text_font_, {255, 255, 255, 255});
-    
-    std::string auto_save_str = training_config_.auto_save ? "ON" : "OFF";
-    render_text("Auto-save:", 180, 290, text_font_, {220, 220, 240, 255});
-    MenuButton toggle_btn = {{320, 285, 100, 34}, auto_save_str, false};
-    
-    std::string load_brain_str = training_config_.load_brain ? "ON" : "OFF";
-    render_text("Load Brain:", 180, 340, text_font_, {220, 220, 240, 255});
-    MenuButton load_brain_btn = {{320, 335, 100, 34}, load_brain_str, false};
-    
-    int btn_y = 410;
-    int btn_w = 80;
-    int btn_spacing = 20;
-    int total_btns_width = 4 * btn_w + 3 * btn_spacing;
-    int btns_start_x = center_x(total_btns_width);
-    
-    MenuButton ep1k_btn = {{btns_start_x, btn_y, btn_w, 34}, "1K", false};
-    MenuButton ep10k_btn = {{btns_start_x + btn_w + btn_spacing, btn_y, btn_w, 34}, "10K", false};
-    MenuButton ep50k_btn = {{btns_start_x + 2*(btn_w + btn_spacing), btn_y, btn_w, 34}, "50K", false};
-    MenuButton ep100k_btn = {{btns_start_x + 3*(btn_w + btn_spacing), btn_y, btn_w, 34}, "100K", false};
-    
-    int action_btn_y = 480;
-    int action_btn_w = 160;
-    int action_btn_spacing = 20;
-    int total_action_width = 2 * action_btn_w + action_btn_spacing;
-    int action_start_x = center_x(total_action_width);
-    
-    MenuButton start_btn = {{action_start_x, action_btn_y, action_btn_w, 46}, "Start Training", false};
-    MenuButton back_btn = {{action_start_x + action_btn_w + action_btn_spacing, action_btn_y, action_btn_w, 46}, "Back", false};
-    
-    int mx, my;
-    SDL_GetMouseState(&mx, &my);
-    SDL_Point p = {mx, my};
-    toggle_btn.hovered = SDL_PointInRect(&p, &toggle_btn.rect);
-    load_brain_btn.hovered = SDL_PointInRect(&p, &load_brain_btn.rect);
-    ep1k_btn.hovered = SDL_PointInRect(&p, &ep1k_btn.rect);
-    ep10k_btn.hovered = SDL_PointInRect(&p, &ep10k_btn.rect);
-    ep50k_btn.hovered = SDL_PointInRect(&p, &ep50k_btn.rect);
-    ep100k_btn.hovered = SDL_PointInRect(&p, &ep100k_btn.rect);
-    start_btn.hovered = SDL_PointInRect(&p, &start_btn.rect);
-    back_btn.hovered = SDL_PointInRect(&p, &back_btn.rect);
-    
-    render_button(toggle_btn);
-    render_button(load_brain_btn);
-    render_button(ep1k_btn);
-    render_button(ep10k_btn);
-    render_button(ep50k_btn);
-    render_button(ep100k_btn);
-    render_button(start_btn);
-    render_button(back_btn);
-    
-    render_text("Tip: Press ENTER to start training.", subtitle_x, 540, text_font_, {180, 180, 220, 255});
-    SDL_RenderPresent(renderer_);
-}
-
-void Menu::handle_training_click(int x, int y) {
-    if (x >= 320 && x <= 480 && y >= 165 && y <= 201) {
-        editing_field_ = EditField::EPISODES;
-        input_buffer_ = std::to_string(training_config_.episodes);
-        SDL_StartTextInput();
-        return;
-    }
-    if (x >= 320 && x <= 480 && y >= 225 && y <= 261) {
-        editing_field_ = EditField::THREADS;
-        input_buffer_ = std::to_string(training_config_.threads);
-        SDL_StartTextInput();
-        return;
-    }
-    if (editing_field_ != EditField::NONE) {
-        apply_edits();
-        editing_field_ = EditField::NONE;
-        SDL_StopTextInput();
-    }
-    if (x >= 320 && x <= 420 && y >= 285 && y <= 319) {
-        training_config_.auto_save = !training_config_.auto_save;
-    }
-    if (x >= 320 && x <= 420 && y >= 335 && y <= 369) {
-        training_config_.load_brain = !training_config_.load_brain;
-    }
-    
-    int btn_y = 410;
-    int btn_w = 80;
-    int btn_spacing = 20;
-    int total_btns_width = 4 * btn_w + 3 * btn_spacing;
-    int btns_start_x = center_x(total_btns_width);
-    
-    if (x >= btns_start_x && x <= btns_start_x + btn_w && y >= btn_y && y <= btn_y + 34) {
-        training_config_.episodes = 1000;
-        return;
-    }
-    if (x >= btns_start_x + btn_w + btn_spacing && x <= btns_start_x + 2*btn_w + btn_spacing && y >= btn_y && y <= btn_y + 34) {
-        training_config_.episodes = 10000;
-        return;
-    }
-    if (x >= btns_start_x + 2*(btn_w + btn_spacing) && x <= btns_start_x + 3*btn_w + 2*btn_spacing && y >= btn_y && y <= btn_y + 34) {
-        training_config_.episodes = 50000;
-        return;
-    }
-    if (x >= btns_start_x + 3*(btn_w + btn_spacing) && x <= btns_start_x + 4*btn_w + 3*btn_spacing && y >= btn_y && y <= btn_y + 34) {
-        training_config_.episodes = 100000;
-        return;
-    }
-    
-    int action_btn_y = 470;
-    int action_btn_w = 120;
-    int action_btn_spacing = 20;
-    int total_action_width = 2 * action_btn_w + action_btn_spacing;
-    int action_start_x = center_x(total_action_width);
-    
-    if (x >= action_start_x && x <= action_start_x + action_btn_w && y >= action_btn_y && y <= action_btn_y + 46) {
-        // Call callback to start training (if set)
-        if (training_start_callback_) {
-            training_start_callback_(training_config_, training_status_ptr_);
-        }
-        current_state_ = MenuState::TRAINING_ACTIVE;
-        return;
-    }
-    if (x >= action_start_x + action_btn_w + action_btn_spacing && x <= action_start_x + 2*action_btn_w + action_btn_spacing && y >= action_btn_y && y <= action_btn_y + 46) {
-        current_state_ = MenuState::HOME;
-    }
-}
-
-// ============================================================================
-// Event Handling
-// ============================================================================
-
-void Menu::activate_home_button(int index) {
-    if (index < 0 || index >= static_cast<int>(home_buttons_.size())) return;
-    const std::string& text = home_buttons_[index].text;
-    if (text == "Start Simulation") {
-        current_state_ = MenuState::START_SIM;
-    } else if (text == "Training") {
-        current_state_ = MenuState::TRAINING_SCREEN;
-    } else if (text == "Settings") {
-        current_state_ = MenuState::SETTINGS;
-    } else if (text == "About") {
-        current_state_ = MenuState::ABOUT;
-    } else if (text == "Exit") {
-        current_state_ = MenuState::EXIT;
-    }
-}
-
-void Menu::handle_home_click(int x, int y) {
-    for (size_t i = 0; i < home_buttons_.size(); ++i) {
-        if (x >= home_buttons_[i].rect.x && 
-            x <= home_buttons_[i].rect.x + home_buttons_[i].rect.w &&
-            y >= home_buttons_[i].rect.y && 
-            y <= home_buttons_[i].rect.y + home_buttons_[i].rect.h) {
-            selected_home_button_index_ = static_cast<int>(i);
-            activate_home_button(selected_home_button_index_);
-            return;
-        }
-    }
-}
-
-void Menu::render_settings() {
-    SDL_SetRenderDrawColor(renderer_, 14, 18, 30, 255);
-    SDL_RenderClear(renderer_);
-    
-    int title_x = center_text_x("Settings", title_font_);
-    render_text("Settings", title_x, 20, title_font_, {190, 190, 255, 255});
-    
-    SDL_SetRenderDrawColor(renderer_, 30, 34, 55, 255);
-    SDL_Rect panel = {140, 80, 520, 400};
-    SDL_RenderFillRect(renderer_, &panel);
-    SDL_SetRenderDrawColor(renderer_, 100, 100, 170, 255);
-    SDL_RenderDrawRect(renderer_, &panel);
-    
-    RuntimeConfig& cfg = RuntimeConfig::instance();
-    
-    // Grid Size
-    render_text("Grid Size:", 180, 120, text_font_, {220, 220, 240, 255});
-    SDL_Rect grid_field = {320, 115, 160, 36};
-    render_field(grid_field, EditField::GRID_SIZE, std::to_string(cfg.grid_size));
-    
-    // Agent Count
-    render_text("Number of Agents:", 180, 180, text_font_, {220, 220, 240, 255});
-    SDL_Rect agent_field = {320, 175, 160, 36};
-    render_field(agent_field, EditField::AGENTS, std::to_string(cfg.agent_count));
-    
-    // Food Count
-    render_text("Food Count:", 180, 240, text_font_, {220, 220, 240, 255});
-    SDL_Rect food_field = {320, 235, 160, 36};
-    render_field(food_field, EditField::FOOD_COUNT, std::to_string(cfg.food_count));
-    
-    // Food Reset Threshold
-    render_text("Food Reset Threshold:", 180, 300, text_font_, {220, 220, 240, 255});
-    SDL_Rect thresh_field = {320, 295, 160, 36};
-    render_field(thresh_field, EditField::FOOD_THRESHOLD, std::to_string(cfg.food_reset_threshold));
-    
-    // Back button
-    int back_x = center_x(100);
-    SDL_Rect back_rect = {back_x, 500, 100, 40};
-    SDL_SetRenderDrawColor(renderer_, 60, 60, 80, 255);
-    SDL_RenderFillRect(renderer_, &back_rect);
-    SDL_SetRenderDrawColor(renderer_, 100, 100, 170, 255);
-    SDL_RenderDrawRect(renderer_, &back_rect);
-    render_text("Back", back_x + 25, 510, text_font_, {220, 220, 240, 255});
-    
-    SDL_RenderPresent(renderer_);
-}
-
-void Menu::render_field(const SDL_Rect& field, EditField field_type, const std::string& display) {
-    if (editing_field_ == field_type) {
-        SDL_SetRenderDrawColor(renderer_, 100, 100, 200, 255);
-    } else {
-        SDL_SetRenderDrawColor(renderer_, 60, 60, 80, 255);
-    }
-    SDL_RenderFillRect(renderer_, &field);
-    SDL_SetRenderDrawColor(renderer_, 140, 140, 200, 255);
-    SDL_RenderDrawRect(renderer_, &field);
-    std::string text = (editing_field_ == field_type) ? input_buffer_ + "_" : display;
-    render_text(text, field.x + 10, field.y + 5, text_font_, {255, 255, 255, 255});
-}
-
-void Menu::handle_settings_click(int x, int y) {
-    RuntimeConfig& cfg = RuntimeConfig::instance();
-    
-    // Grid Size field
-    if (x >= 320 && x <= 480 && y >= 115 && y <= 151) {
-        editing_field_ = EditField::GRID_SIZE;
-        input_buffer_ = std::to_string(cfg.grid_size);
-        SDL_StartTextInput();
-        return;
-    }
-    // Agent Count field
-    if (x >= 320 && x <= 480 && y >= 175 && y <= 211) {
-        editing_field_ = EditField::AGENTS;
-        input_buffer_ = std::to_string(cfg.agent_count);
-        SDL_StartTextInput();
-        return;
-    }
-    // Food Count field
-    if (x >= 320 && x <= 480 && y >= 235 && y <= 271) {
-        editing_field_ = EditField::FOOD_COUNT;
-        input_buffer_ = std::to_string(cfg.food_count);
-        SDL_StartTextInput();
-        return;
-    }
-    // Food Reset Threshold field
-    if (x >= 320 && x <= 480 && y >= 295 && y <= 331) {
-        editing_field_ = EditField::FOOD_THRESHOLD;
-        input_buffer_ = std::to_string(cfg.food_reset_threshold);
-        SDL_StartTextInput();
-        return;
-    }
-    
-    if (editing_field_ != EditField::NONE) {
-        apply_edits();
-        editing_field_ = EditField::NONE;
-        SDL_StopTextInput();
-    }
-    
-    int back_x = center_x(100);
-    SDL_Rect back_rect = {back_x, 500, 100, 40};
-    if (x >= back_rect.x && x <= back_rect.x + back_rect.w &&
-        y >= back_rect.y && y <= back_rect.y + back_rect.h) {
-        current_state_ = MenuState::HOME;
-    }
-}
-
-void Menu::apply_edits() {
-    RuntimeConfig& cfg = RuntimeConfig::instance();
-    if (editing_field_ == EditField::EPISODES) {
-        try {
-            int val = std::stoi(input_buffer_);
-            training_config_.episodes = std::max(100, std::min(500000, val));
-        } catch (...) { /* invalid input, keep current */ }
-    } else if (editing_field_ == EditField::THREADS) {
-        try {
-            int val = std::stoi(input_buffer_);
-            training_config_.threads = std::max(1, std::min(16, val));
-        } catch (...) { /* invalid input, keep current */ }
-    } else if (editing_field_ == EditField::AGENTS) {
-        try {
-            int val = std::stoi(input_buffer_);
-            cfg.agent_count = std::max(1, std::min(50, val));
-        } catch (...) { /* invalid input, keep current */ }
-    } else if (editing_field_ == EditField::FOOD_COUNT) {
-        try {
-            int val = std::stoi(input_buffer_);
-            cfg.food_count = std::max(1, std::min(200, val));
-        } catch (...) { /* invalid input, keep current */ }
-    } else if (editing_field_ == EditField::GRID_SIZE) {
-        try {
-            int val = std::stoi(input_buffer_);
-            cfg.grid_size = std::max(5, std::min(30, val));
-        } catch (...) { /* invalid input, keep current */ }
-    } else if (editing_field_ == EditField::FOOD_THRESHOLD) {
-        try {
-            int val = std::stoi(input_buffer_);
-            cfg.food_reset_threshold = std::max(1, std::min(100, val));
-        } catch (...) { /* invalid input, keep current */ }
-    }
-}
-
-// ============================================================================
-// Main Menu Loop
-// ============================================================================
+// ── Core loop ────────────────────────────────────────────────────────────────
 
 MenuState Menu::run() {
-    SDL_Event event;
-    bool running = true;
-    
-    while (running) {
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_QUIT) {
-                current_state_ = MenuState::EXIT;
-                running = false;
-            } else if (event.type == SDL_MOUSEBUTTONDOWN) {
-                if (event.button.button == SDL_BUTTON_LEFT) {
-                    int x = event.button.x;
-                    int y = event.button.y;
-                    
-                    if (current_state_ == MenuState::HOME) {
-                        handle_home_click(x, y);
-                    } else if (current_state_ == MenuState::TRAINING_SCREEN) {
-                        handle_training_click(x, y);
-                    } else if (current_state_ == MenuState::ABOUT) {
-                        // Check if back button clicked
-                        int back_x = center_x(100);
-                        SDL_Rect back_rect = {back_x, 500, 100, 40};
-                        if (x >= back_rect.x && x <= back_rect.x + back_rect.w &&
-                            y >= back_rect.y && y <= back_rect.y + back_rect.h) {
-                            current_state_ = MenuState::HOME;
-                        }
-                    } else if (current_state_ == MenuState::TRAINING_ACTIVE) {
-                        // Check if stop button clicked
-                        if (x >= stop_button_rect_.x && x <= stop_button_rect_.x + stop_button_rect_.w &&
-                            y >= stop_button_rect_.y && y <= stop_button_rect_.y + stop_button_rect_.h) {
-                            g_training_stop_flag.store(true);
-                            if (training_status_ptr_) {
-                                training_status_ptr_->stop_flag.store(true);
-                            }
-                        }
-                    }
-                }
-            } else if (event.type == SDL_KEYDOWN) {
-                if (event.key.keysym.sym == SDLK_ESCAPE) {
-                    if (current_state_ == MenuState::TRAINING_ACTIVE) {
-                        // Stop training on ESC
-                        g_training_stop_flag.store(true);
-                        if (training_status_ptr_) {
-                            training_status_ptr_->stop_flag.store(true);
-                        }
-                    } else if (current_state_ == MenuState::HOME) {
-                        current_state_ = MenuState::EXIT;
-                        running = false;
-                    } else if (editing_field_ != EditField::NONE) {
-                        editing_field_ = EditField::NONE;
-                        SDL_StopTextInput();
-                    } else {
-                        current_state_ = MenuState::HOME;
-                    }
-                } else if (event.key.keysym.sym == SDLK_RETURN || event.key.keysym.sym == SDLK_KP_ENTER) {
-                    if (editing_field_ != EditField::NONE) {
-                        apply_edits();
-                        editing_field_ = EditField::NONE;
-                        SDL_StopTextInput();
-                    } else if (current_state_ == MenuState::HOME) {
-                        activate_home_button(selected_home_button_index_);
-                    } else if (current_state_ == MenuState::TRAINING_SCREEN) {
-                        current_state_ = MenuState::TRAINING;
-                    }
-                } else if (event.key.keysym.sym == SDLK_UP) {
-                    if (current_state_ == MenuState::HOME) {
-                        selected_home_button_index_ = (selected_home_button_index_ + static_cast<int>(home_buttons_.size()) - 1) % static_cast<int>(home_buttons_.size());
-                    }
-                } else if (event.key.keysym.sym == SDLK_DOWN) {
-                    if (current_state_ == MenuState::HOME) {
-                        selected_home_button_index_ = (selected_home_button_index_ + 1) % static_cast<int>(home_buttons_.size());
-                    }
-                } else if (event.key.keysym.sym == SDLK_BACKSPACE) {
-                    if (editing_field_ != EditField::NONE && !input_buffer_.empty()) {
-                        input_buffer_.pop_back();
-                    }
-                }
-            } else if (event.type == SDL_TEXTINPUT) {
-                if (editing_field_ != EditField::NONE) {
-                    input_buffer_ += event.text.text;
-                }
+    while (true) {
+        if (WindowShouldClose()) return MenuState::EXIT;
+
+        switch (current_state_) {
+            case MenuState::HOME:            do_home(); break;
+            case MenuState::TRAINING_CONFIG:  do_training_config(); break;
+            case MenuState::TRAINING_ACTIVE:  do_training_active(); break;
+            case MenuState::SETTINGS:        do_settings(); break;
+            case MenuState::ABOUT:           do_about(); break;
+            default: return current_state_;
+        }
+
+        if (IsKeyPressed(KEY_ESCAPE)) {
+            switch (current_state_) {
+                case MenuState::HOME:     current_state_ = MenuState::EXIT; break;
+                case MenuState::TRAINING_CONFIG:
+                case MenuState::SETTINGS:
+                case MenuState::ABOUT:    current_state_ = MenuState::HOME; break;
+                case MenuState::TRAINING_ACTIVE:
+                    g_training_stop_flag.store(true);
+                    current_state_ = MenuState::HOME;
+                    break;
+                default: break;
             }
         }
-        
-        if (current_state_ == MenuState::HOME) {
-            render_home();
-        } else if (current_state_ == MenuState::TRAINING_SCREEN) {
-            render_training();
-        } else if (current_state_ == MenuState::SETTINGS) {
-            render_settings();
-        } else if (current_state_ == MenuState::ABOUT) {
-            render_about();
-        } else if (current_state_ == MenuState::TRAINING_ACTIVE) {
-            render_training_active();
-            
-            // Check if training is done or was stopped
-            if (training_status_ptr_ && !training_status_ptr_->active.load()) {
-                current_state_ = MenuState::TRAINING_SCREEN;
-            }
-        }
-        
-        if (current_state_ == MenuState::START_SIM || 
-            current_state_ == MenuState::TRAINING ||
+
+        if (current_state_ == MenuState::START_SIM ||
             current_state_ == MenuState::EXIT) {
-            running = false;
+            MenuState ret = current_state_;
+            if (ret != MenuState::EXIT)
+                current_state_ = MenuState::HOME;
+            return ret;
         }
-        
-        SDL_Delay(16);
     }
-    
-    return current_state_;
+}
+
+// ── Home ─────────────────────────────────────────────────────────────────────
+
+void Menu::do_home() {
+    BeginDrawing();
+    ClearBackground(CLITERAL(Color){13,17,23,255});
+
+    int cw = GetScreenWidth();
+    float t = GetTime();
+
+    for (int y = 0; y < GetScreenHeight(); y += 6) {
+        float pulse = 0.85f + 0.15f * std::sin(t * 0.5f + y * 0.02f);
+        Color row = {
+            (unsigned char)(13 * pulse),
+            (unsigned char)(17 * pulse),
+            (unsigned char)(23 * pulse),
+            255
+        };
+        DrawRectangle(0, y, cw, 6, row);
+    }
+
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 48);
+    int tw = MeasureText("CUBES", 48);
+    DrawText("CUBES", (cw - tw) / 2, 50, 48, CLITERAL(Color){88,166,255,255});
+
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 18);
+    int sw = MeasureText("AI Learning Simulation", 18);
+    DrawText("AI Learning Simulation", (cw - sw) / 2, 110, 18, CLITERAL(Color){139,148,158,255});
+
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 16);
+    struct Btn { const char* label; MenuState target; };
+    Btn btns[] = {
+        {"Start Simulation", MenuState::START_SIM},
+        {"Training",         MenuState::TRAINING_CONFIG},
+        {"Settings",         MenuState::SETTINGS},
+        {"About",            MenuState::ABOUT},
+        {"Exit",             MenuState::EXIT}
+    };
+
+    int bx = (cw - 200) / 2;
+    int by = 190;
+    for (auto& b : btns) {
+        if (GuiButton({(float)bx, (float)by, 200, 40}, b.label))
+            current_state_ = b.target;
+        by += 50;
+    }
+
+    bool brain_exists = std::ifstream(brain_file_path()).good();
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 13);
+    const char* msg = brain_exists
+        ? "Brain file found - will auto-load"
+        : "No brain file - agents will use random brains";
+    Color msg_col = brain_exists
+        ? CLITERAL(Color){63,185,80,255}
+        : CLITERAL(Color){248,81,73,255};
+    int mx = MeasureText(msg, 13);
+    DrawText(msg, (cw - mx) / 2, GetScreenHeight() - 40, 13, msg_col);
+
+    EndDrawing();
+}
+
+// ── Training Config ──────────────────────────────────────────────────────────
+
+void Menu::do_training_config() {
+    BeginDrawing();
+    ClearBackground(CLITERAL(Color){13,17,23,255});
+
+    int cw = GetScreenWidth();
+
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 36);
+    int tw = MeasureText("Training", 36);
+    DrawText("Training", (cw - tw) / 2, 25, 36, CLITERAL(Color){88,166,255,255});
+
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 14);
+    int sw = MeasureText("Optimise a single simulation at maximum speed.", 14);
+    DrawText("Optimise a single simulation at maximum speed.",
+             (cw - sw) / 2, 75, 14, CLITERAL(Color){139,148,158,255});
+
+    int px = (cw - 500) / 2;
+    DrawRectangleRounded({(float)px, 110, 500, 200}, 0.1f, 8, CLITERAL(Color){22,27,34,255});
+    DrawRectangleRoundedLines({(float)px, 110, 500, 200}, 0.1f, 8, CLITERAL(Color){48,54,61,255});
+
+    int lx = px + 30;
+    int fx = px + 170;
+
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 14);
+
+    DrawText("Episodes:", lx, 140, 14, CLITERAL(Color){201,209,217,255});
+    Rectangle ep_r = {(float)fx, 135, 160, 30};
+    if (GuiTextBox(ep_r, ep_buf_, 31, editing_episodes_))
+        editing_episodes_ = !editing_episodes_;
+    if (!editing_episodes_) {
+        try { training_config_.episodes = std::max(100, std::min(500000, std::stoi(ep_buf_))); }
+        catch (...) {}
+    }
+
+    DrawText("Auto-save brain:", lx, 190, 14, CLITERAL(Color){201,209,217,255});
+    Rectangle as_r = {(float)fx, 185, 80, 28};
+    if (GuiButton(as_r, training_config_.auto_save ? "ON" : "OFF"))
+        training_config_.auto_save = !training_config_.auto_save;
+
+    // Episode presets
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 13);
+    struct { const char* label; int val; } qbtns[] = {
+        {"1K", 1000}, {"10K", 10000}, {"50K", 50000}, {"100K", 100000}
+    };
+    Rectangle qb = {210, 240, 65, 28};
+    for (auto& q : qbtns) {
+        if (GuiButton(qb, q.label)) {
+            training_config_.episodes = q.val;
+            snprintf(ep_buf_, sizeof(ep_buf_), "%d", q.val);
+        }
+        qb.x += qb.width + 12;
+    }
+
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 16);
+    int btn_w = 140, btn_h = 40, gap = 20;
+    int start_x = (cw - 2 * btn_w - gap) / 2;
+    if (GuiButton({(float)start_x, 300, (float)btn_w, (float)btn_h}, "Start Training")) {
+        if (training_start_callback_)
+            training_start_callback_(training_config_, training_status_ptr_);
+        snprintf(ep_buf_, sizeof(ep_buf_), "%d", training_config_.episodes);
+        current_state_ = MenuState::TRAINING_ACTIVE;
+    }
+    if (GuiButton({(float)(start_x + btn_w + gap), 300, (float)btn_w, (float)btn_h}, "Back"))
+        current_state_ = MenuState::HOME;
+
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 13);
+    const char* tip = "ESC to go back";
+    int tix = (cw - MeasureText(tip, 13)) / 2;
+    DrawText(tip, tix, 380, 13, CLITERAL(Color){100,108,118,255});
+
+    EndDrawing();
+}
+
+// ── Training Active ──────────────────────────────────────────────────────────
+
+void Menu::do_training_active() {
+    BeginDrawing();
+    ClearBackground(CLITERAL(Color){13,17,23,255});
+
+    int cw = GetScreenWidth();
+    int done = 0, total = 0, best = 0;
+    if (training_status_ptr_ && training_status_ptr_->active.load()) {
+        done  = training_status_ptr_->episodes_done.load();
+        total = training_status_ptr_->total_episodes.load();
+        best  = training_status_ptr_->best_food.load();
+    }
+    float prog = (total > 0) ? (float)done / total : 0.0f;
+    prog = std::max(0.0f, std::min(1.0f, prog));
+
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 36);
+    int tw = MeasureText("Training", 36);
+    DrawText("Training", (cw - tw) / 2, 15, 36, CLITERAL(Color){88,166,255,255});
+
+    std::string best_str = "Best food: " + std::to_string(best);
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 18);
+    int bw = MeasureText(best_str.c_str(), 18);
+    DrawText(best_str.c_str(), (cw - bw) / 2, 60, 18, CLITERAL(Color){63,185,80,255});
+
+    // Progress bar
+    Rectangle bar = {(float)(cw / 2 - 250), 100, 500, 30};
+    DrawRectangleRounded(bar, 0.15f, 8, CLITERAL(Color){48,54,61,255});
+    if (prog > 0) {
+        Rectangle fill = {bar.x, bar.y, bar.width * prog, bar.height};
+        DrawRectangleRounded(fill, 0.15f, 8, CLITERAL(Color){63,185,80,255});
+    }
+    DrawRectangleRoundedLines(bar, 0.15f, 8, CLITERAL(Color){100,108,118,255});
+
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 14);
+    std::string pct_str = std::to_string(done) + " / " + std::to_string(total) + " episodes  (" + std::to_string((int)(prog * 100)) + "%)";
+    int pctw = MeasureText(pct_str.c_str(), 14);
+    DrawText(pct_str.c_str(), (cw - pctw) / 2, 140, 14, CLITERAL(Color){201,209,217,255});
+
+    // ── Food history graph ────────────────────────────────────────────────
+    int graph_x = 60;
+    int graph_y = 190;
+    int graph_w = cw - 120;
+    int graph_h = 160;
+
+    DrawRectangleRounded({(float)graph_x, (float)graph_y, (float)graph_w, (float)graph_h}, 0.1f, 8, CLITERAL(Color){22,27,34,255});
+
+    std::vector<TrainingFoodPoint> history;
+    if (training_status_ptr_) {
+        std::lock_guard<std::mutex> hlock(training_status_ptr_->history_mutex);
+        history = training_status_ptr_->food_history;
+    }
+
+    int max_best = 10;
+    int max_rate = 10;
+    int min_ep = 0;
+    int max_ep = 1;
+    for (const auto& p : history) {
+        if (p.best_food > max_best) max_best = p.best_food;
+        if (p.episodes_done < min_ep) min_ep = p.episodes_done;
+        if (p.episodes_done > max_ep) max_ep = p.episodes_done;
+    }
+    // Compute max rate (food per 100 steps) from total_food diffs
+    for (size_t j = 1; j < history.size(); ++j) {
+        int rate = history[j].total_food - history[j-1].total_food;
+        if (rate > max_rate) max_rate = rate;
+    }
+    max_best = std::max(10, ((max_best / 10) + 1) * 10);
+    max_rate = std::max(10, ((max_rate / 10) + 1) * 10);
+    int ep_range = std::max(1, max_ep - min_ep);
+
+    if (history.size() >= 2) {
+        int plot_x = graph_x + 45;
+        int plot_y = graph_y + 12;
+        int plot_w = graph_w - 90;
+        int plot_h = graph_h - 48;
+
+        Color best_col = {88, 166, 255, 255};
+        Color rate_col = {63, 185, 80, 255};
+
+        // ── Left Y-axis: Best Ever ────────────────────────────────────────
+        for (int i = 0; i <= 4; ++i) {
+            int ly = plot_y + plot_h - (plot_h * i / 4);
+            DrawLine(plot_x, ly, plot_x + plot_w, ly, CLITERAL(Color){40,46,54,255});
+            std::string lbl = std::to_string(max_best * i / 4);
+            DrawText(lbl.c_str(), graph_x + 2, ly - 7, 9, CLITERAL(Color){100,108,118,255});
+        }
+        DrawText("Best Ever", graph_x + 2, plot_y, 9, best_col);
+
+        // ── Right Y-axis: Food/100 steps ──────────────────────────────────
+        int rx = plot_x + plot_w + 4;
+        for (int i = 0; i <= 4; ++i) {
+            int ly = plot_y + plot_h - (plot_h * i / 4);
+            std::string lbl = std::to_string(max_rate * i / 4);
+            DrawText(lbl.c_str(), rx, ly - 7, 9, CLITERAL(Color){100,108,118,255});
+        }
+        DrawText("Rate", rx, plot_y, 9, rate_col);
+
+        // ── X-axis ────────────────────────────────────────────────────────
+        std::string xlbl = "Steps";
+        int xlw = MeasureText(xlbl.c_str(), 9);
+        DrawText(xlbl.c_str(), plot_x + plot_w - xlw - 2, graph_y + graph_h - 18, 9, CLITERAL(Color){100,108,118,255});
+
+        // ── Trace 1: Best Ever ────────────────────────────────────────────
+        for (size_t j = 1; j < history.size(); ++j) {
+            int x1 = plot_x + (history[j-1].episodes_done - min_ep) * plot_w / ep_range;
+            int y1 = plot_y + plot_h - history[j-1].best_food * plot_h / max_best;
+            int x2 = plot_x + (history[j].episodes_done - min_ep) * plot_w / ep_range;
+            int y2 = plot_y + plot_h - history[j].best_food * plot_h / max_best;
+            DrawLine(x1, y1, x2, y2, best_col);
+        }
+        {
+            const auto& last = history.back();
+            int lx = plot_x + (last.episodes_done - min_ep) * plot_w / ep_range;
+            int ly = plot_y + plot_h - last.best_food * plot_h / max_best;
+            DrawCircle(lx, ly, 4, best_col);
+            std::string val = std::to_string(last.best_food);
+            int vw = MeasureText(val.c_str(), 11);
+            DrawText(val.c_str(), lx - vw / 2, ly - 16, 11, CLITERAL(Color){201,209,217,255});
+        }
+
+        // ── Trace 2: Food/100 steps (right Y-axis) ────────────────────────
+        for (size_t j = 1; j < history.size(); ++j) {
+            int rate = history[j].total_food - history[j-1].total_food;
+            int prev_rate = (j > 1) ? (history[j-1].total_food - history[j-2].total_food) : 0;
+            int x1 = plot_x + (history[j-1].episodes_done - min_ep) * plot_w / ep_range;
+            int y1 = plot_y + plot_h - prev_rate * plot_h / max_rate;
+            int x2 = plot_x + (history[j].episodes_done - min_ep) * plot_w / ep_range;
+            int y2 = plot_y + plot_h - rate * plot_h / max_rate;
+            Color rc = rate_col;
+            rc.a = 200;
+            DrawLine(x1, y1, x2, y2, rc);
+        }
+        // Last dot for rate
+        if (history.size() >= 2) {
+            int last_rate = history.back().total_food - history[history.size()-2].total_food;
+            const auto& lp = history.back();
+            int lx = plot_x + (lp.episodes_done - min_ep) * plot_w / ep_range;
+            int ly = plot_y + plot_h - last_rate * plot_h / max_rate;
+            DrawCircle(lx, ly, 3, rate_col);
+        }
+
+        // ── Legend ────────────────────────────────────────────────────────
+        {
+            int lx = plot_x;
+            int ly = graph_y + graph_h - 16;
+            DrawRectangle(lx, ly, 8, 8, best_col);
+            DrawText(" Best", lx + 10, ly - 2, 10, CLITERAL(Color){201,209,217,255});
+            lx += 55;
+            DrawRectangle(lx, ly, 8, 8, rate_col);
+            DrawText(" Rate", lx + 10, ly - 2, 10, CLITERAL(Color){201,209,217,255});
+        }
+    } else {
+        DrawText("Collecting data...", graph_x + 40, graph_y + graph_h / 2 - 8, 14, CLITERAL(Color){100,108,118,255});
+    }
+
+    // STOP button
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 20);
+    if (GuiButton({(float)(cw / 2 - 60), (float)(graph_y + graph_h + 20), 120, 45}, "STOP")) {
+        g_training_stop_flag.store(true);
+    }
+
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 13);
+    int tipw = MeasureText("ESC to cancel training", 13);
+    DrawText("ESC to cancel training", (cw - tipw) / 2, graph_y + graph_h + 80, 13, CLITERAL(Color){100,108,118,255});
+
+    if (training_status_ptr_ && !training_status_ptr_->active.load())
+        current_state_ = MenuState::HOME;
+
+    EndDrawing();
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+
+void Menu::do_settings() {
+    BeginDrawing();
+    ClearBackground(CLITERAL(Color){13,17,23,255});
+
+    int cw = GetScreenWidth();
+    RuntimeConfig& cfg = RuntimeConfig::instance();
+
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 36);
+    int tw = MeasureText("Settings", 36);
+    DrawText("Settings", (cw - tw) / 2, 25, 36, CLITERAL(Color){88,166,255,255});
+
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 14);
+    int sw = MeasureText("Adjust simulation parameters.", 14);
+    DrawText("Adjust simulation parameters.",
+             (cw - sw) / 2, 75, 14, CLITERAL(Color){139,148,158,255});
+
+    int px = (cw - 500) / 2;
+    DrawRectangleRounded({(float)px, 110, 500, 350}, 0.1f, 8, CLITERAL(Color){22,27,34,255});
+    DrawRectangleRoundedLines({(float)px, 110, 500, 350}, 0.1f, 8, CLITERAL(Color){48,54,61,255});
+
+    int lx = px + 30;
+    int fx = px + 220;
+
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 14);
+
+    auto edit_field = [&](const char* label, int y, char* buf, unsigned buf_size, bool& editing, int& val, int min_v, int max_v) {
+        DrawText(label, lx, y + 6, 14, CLITERAL(Color){201,209,217,255});
+        Rectangle r = {(float)fx, (float)y, 120, 30};
+        if (GuiTextBox(r, buf, buf_size - 1, editing))
+            editing = !editing;
+        if (!editing) {
+            try { val = std::max(min_v, std::min(max_v, std::stoi(buf))); }
+            catch (...) {}
+        }
+    };
+
+    snprintf(grid_buf_, sizeof(grid_buf_), "%d", cfg.grid_size);
+    edit_field("Grid Size:",        115, grid_buf_,     sizeof(grid_buf_),     editing_grid_,       cfg.grid_size,        5,  30);
+    edit_field("Agents:",           170, agents_buf_,   sizeof(agents_buf_),   editing_agents_,     cfg.agent_count,      1,  50);
+    edit_field("Food Count:",       225, food_count_buf_, sizeof(food_count_buf_), editing_food_count_, cfg.food_count,   1, 200);
+    edit_field("Food Threshold:",   280, food_thresh_buf_, sizeof(food_thresh_buf_), editing_food_thresh_, cfg.food_reset_threshold, 1, 100);
+
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 16);
+    if (GuiButton({(float)(cw / 2 - 60), 500, 120, 40}, "Back"))
+        current_state_ = MenuState::HOME;
+
+    EndDrawing();
+}
+
+// ── About ────────────────────────────────────────────────────────────────────
+
+void Menu::do_about() {
+    BeginDrawing();
+    ClearBackground(CLITERAL(Color){13,17,23,255});
+
+    int cw = GetScreenWidth();
+
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 36);
+    int tw = MeasureText("About CUBES", 36);
+    DrawText("About CUBES", (cw - tw) / 2, 40, 36, CLITERAL(Color){88,166,255,255});
+
+    auto blurb = [&](const char* text, int y, int size) {
+        GuiSetStyle(DEFAULT, TEXT_SIZE, size);
+        int w = MeasureText(text, size);
+        DrawText(text, (cw - w) / 2, y, size, CLITERAL(Color){139,148,158,255});
+    };
+
+    blurb("CUBES - AI Learning Simulation",                110, 18);
+    blurb("Version 2.0 - Raylib Edition",                  140, 14);
+    blurb("Uses Deep Q-Network (DQN) reinforcement learning", 180, 16);
+    blurb("Agents learn to collect food and survive",      210, 16);
+    blurb("Genetic algorithms evolve better agents each generation", 240, 16);
+
+    blurb("Controls:", 290, 16);
+    blurb("ESC - Exit  |  R - Reset  |  Space - Pause",      325, 14);
+    blurb("W - Warp  |  +/- - Speed  |  0 - Reset Warp",     350, 14);
+    blurb("D - Debug  |  S - Save Brain  |  L - Load Brain", 375, 14);
+
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 16);
+    if (GuiButton({(float)(cw / 2 - 60), 500, 120, 40}, "Back"))
+        current_state_ = MenuState::HOME;
+
+    EndDrawing();
 }

@@ -18,13 +18,13 @@
 // Layer Implementation
 // ============================================================================
 
-Layer::Layer(int input_size, int output_size, std::mt19937& gen, std::uniform_real_distribution<double>& dis)
-    : input_size(input_size), output_size(output_size) {
+Layer::Layer(int input_size, int output_size, std::mt19937& gen, bool use_relu)
+    : input_size(input_size), output_size(output_size), use_relu(use_relu) {
     
     // Initialize weights matrix [output_size][input_size]
     weights.resize(output_size, std::vector<double>(input_size));
     
-    // Xavier initialization: keeps gradients stable across layers
+    // Xavier/Glorot initialization: keeps gradients stable across layers
     // Range = [-sqrt(6/(fan_in+fan_out)), sqrt(6/(fan_in+fan_out))]
     double weight_range = std::sqrt(6.0 / (input_size + output_size));
     std::uniform_real_distribution<double> weight_dist(-weight_range, weight_range);
@@ -35,26 +35,36 @@ Layer::Layer(int input_size, int output_size, std::mt19937& gen, std::uniform_re
         }
     }
     
-    // Initialize biases to small random values near zero
-    biases.resize(output_size);
-    for (int i = 0; i < output_size; ++i) {
-        biases[i] = dis(gen) * 0.1 - 0.05;  // Range: [-0.05, 0.05]
-    }
+    // Initialize biases to zero (ReLU layers work better with zero biases initially)
+    biases.resize(output_size, 0.0);
     
-    // Initialize cached output vector
+    // Initialize cached vectors
     last_output.resize(output_size, 0.0);
+    last_input.resize(input_size, 0.0);
+
+    // Initialize Adam optimizer state
+    m_weights.resize(output_size, std::vector<double>(input_size, 0.0));
+    v_weights.resize(output_size, std::vector<double>(input_size, 0.0));
+    m_biases.resize(output_size, 0.0);
+    v_biases.resize(output_size, 0.0);
+    adam_t = 0;
 }
 
 std::vector<double> Layer::forward(const std::vector<double>& input) {
+    last_input = input;
     last_output.resize(output_size);
     
-    // Compute: output[i] = ReLU(sum_j(weights[i][j] * input[j]) + biases[i])
     for (int i = 0; i < output_size; ++i) {
         double sum = biases[i];
         for (int j = 0; j < input_size; ++j) {
             sum += weights[i][j] * input[j];
         }
-        last_output[i] = relu(sum);
+        // Apply ReLU only for hidden layers; output layer uses linear activation
+        if (use_relu) {
+            last_output[i] = relu(sum);
+        } else {
+            last_output[i] = sum;
+        }
     }
     return last_output;
 }
@@ -62,54 +72,65 @@ std::vector<double> Layer::forward(const std::vector<double>& input) {
 void Layer::update_weights(const std::vector<double>& input, 
                            const std::vector<double>& gradient, 
                            double learning_rate) {
-    // Gradient descent: weight -= learning_rate * gradient
-    // For each output neuron:
-    //   bias[i] -= lr * gradient[i]
-    //   weight[i][j] -= lr * gradient[i] * input[j]
-    
-    // Clamp learning rate to prevent explosion
-    double lr = std::clamp(learning_rate, 0.0001, 1.0);
+    // Adam optimizer hyperparameters
+    constexpr double beta1 = 0.9;
+    constexpr double beta2 = 0.999;
+    constexpr double eps = 1e-8;
+    adam_t++;
+
+    double lr = std::clamp(learning_rate, 1e-6, 1.0);
     
     for (int i = 0; i < output_size; ++i) {
-        // Skip if gradient is invalid
         if (std::isnan(gradient[i]) || std::isinf(gradient[i])) {
             continue;
         }
-        
-        double update = lr * gradient[i];
-        // Clamp update to prevent explosion
-        update = std::clamp(update, -1.0, 1.0);
-        
-        biases[i] -= update;
-        // Clamp bias
-        biases[i] = std::clamp(biases[i], -10.0, 10.0);
-        
+
+        // Apply ReLU derivative: gradient *= ReLU'(z)  (only for hidden layers)
+        double grad = gradient[i];
+        if (use_relu) {
+            double relu_deriv = (last_output[i] > 0) ? 1.0 : 0.0;
+            grad *= relu_deriv;
+        }
+
+        // Clip gradient to prevent explosion
+        grad = std::clamp(grad, -5.0, 5.0);
+
+        // Update bias with Adam
+        m_biases[i] = beta1 * m_biases[i] + (1.0 - beta1) * grad;
+        v_biases[i] = beta2 * v_biases[i] + (1.0 - beta2) * grad * grad;
+        double m_hat_b = m_biases[i] / (1.0 - std::pow(beta1, adam_t));
+        double v_hat_b = v_biases[i] / (1.0 - std::pow(beta2, adam_t));
+        biases[i] -= lr * m_hat_b / (std::sqrt(v_hat_b) + eps);
+
         for (int j = 0; j < input_size; ++j) {
-            // Skip if input is invalid
             if (std::isnan(input[j]) || std::isinf(input[j])) {
                 continue;
             }
-            
-            double w_update = update * input[j];
-            w_update = std::clamp(w_update, -1.0, 1.0);
-            
-            weights[i][j] -= w_update;
-            // Clamp weight to prevent explosion
-            weights[i][j] = std::clamp(weights[i][j], -10.0, 10.0);
+
+            double w_grad = grad * input[j];
+            w_grad = std::clamp(w_grad, -5.0, 5.0);
+
+            // Update weight with Adam
+            m_weights[i][j] = beta1 * m_weights[i][j] + (1.0 - beta1) * w_grad;
+            v_weights[i][j] = beta2 * v_weights[i][j] + (1.0 - beta2) * w_grad * w_grad;
+            double m_hat_w = m_weights[i][j] / (1.0 - std::pow(beta1, adam_t));
+            double v_hat_w = v_weights[i][j] / (1.0 - std::pow(beta2, adam_t));
+            weights[i][j] -= lr * m_hat_w / (std::sqrt(v_hat_w) + eps);
         }
     }
 }
 
 std::vector<double> Layer::compute_gradient(const std::vector<double>& next_layer_gradient) {
     // Backpropagate gradient to previous layer
-    // gradient_j = sum_i(gradient_i * weight[i][j] * ReLU_derivative(output_i))
+    // gradient_j = sum_i(gradient_i * weight[i][j] * activation_derivative(output_i))
     // ReLU derivative: 1 if output > 0, else 0
+    // Linear derivative: 1 (always, for output layer)
     std::vector<double> gradient(input_size, 0.0);
     
     for (int j = 0; j < input_size; ++j) {
         for (int i = 0; i < output_size; ++i) {
-            double relu_derivative = (last_output[i] > 0) ? 1.0 : 0.0;
-            gradient[j] += next_layer_gradient[i] * weights[i][j] * relu_derivative;
+            double act_deriv = use_relu ? ((last_output[i] > 0) ? 1.0 : 0.0) : 1.0;
+            gradient[j] += next_layer_gradient[i] * weights[i][j] * act_deriv;
         }
     }
     return gradient;
@@ -138,19 +159,20 @@ void Layer::mutate(double mutation_rate, std::mt19937& gen, std::uniform_real_di
 // ============================================================================
 
 NeuralNetwork::NeuralNetwork(const std::vector<int>& layer_sizes, 
-                             std::mt19937& gen, 
-                             std::uniform_real_distribution<double>& dis) {
+                             std::mt19937& gen) {
     // Allocate space for layer inputs (used during backpropagation)
     layer_inputs.resize(layer_sizes.size());
     
     // Create layers: each layer connects layer[i] to layer[i+1]
+    // Hidden layers use ReLU; the output layer uses linear activation
     for (size_t i = 0; i < layer_sizes.size() - 1; ++i) {
-        layers.push_back(Layer(layer_sizes[i], layer_sizes[i+1], gen, dis));
+        bool use_relu = (i < layer_sizes.size() - 2);
+        layers.push_back(Layer(layer_sizes[i], layer_sizes[i+1], gen, use_relu));
     }
     
     // Pre-allocate forward cache if we have layers
     if (!layers.empty()) {
-        forward_cache_.reserve(layer_sizes.back());  // output size
+        forward_cache_.resize(layer_sizes.back(), 0.0);  // output size
     }
 }
 
@@ -191,7 +213,7 @@ void NeuralNetwork::train(const std::vector<double>& input,
     // Validate predicted values
     for (double val : predicted) {
         if (std::isnan(val) || std::isinf(val)) {
-            return; // Skip training if forward pass produced invalid values
+            return;
         }
     }
     
@@ -202,15 +224,24 @@ void NeuralNetwork::train(const std::vector<double>& input,
     for (size_t i = 0; i < predicted.size(); ++i) {
         output_gradient[i] = 2.0 * (predicted[i] - target[i]);
         
-        // Clamp gradient to prevent explosion
         if (std::isnan(output_gradient[i]) || std::isinf(output_gradient[i])) {
-            return; // Skip training if gradient is invalid
+            return;
         }
-        output_gradient[i] = std::clamp(output_gradient[i], -10.0, 10.0);
+    }
+    
+    // Global gradient norm clipping (prevents exploding gradients)
+    double norm = 0.0;
+    for (double g : output_gradient) norm += g * g;
+    norm = std::sqrt(norm);
+    constexpr double MAX_GRAD_NORM = 10.0;
+    double scaling = (norm > MAX_GRAD_NORM) ? MAX_GRAD_NORM / norm : 1.0;
+    
+    std::vector<double> gradient = output_gradient;
+    for (size_t i = 0; i < gradient.size(); ++i) {
+        gradient[i] *= scaling;
     }
     
     // Backpropagate through layers (from output to input)
-    std::vector<double> gradient = output_gradient;
     for (int i = layers.size() - 1; i >= 0; --i) {
         layers[i].update_weights(layer_inputs[i], gradient, learning_rate);
         if (i > 0) {

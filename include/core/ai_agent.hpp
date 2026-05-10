@@ -24,7 +24,7 @@
 #include <memory>
 #include <random>
 #include <optional>
-#include <SDL2/SDL.h>
+#include "raylib.h"
 
 /**
  * @brief Possible actions an agent can take.
@@ -83,13 +83,14 @@ private:
     std::vector<Action> last_actions;                ///< History of recent actions
     std::mt19937 gen;                               ///< Random number generator (thread-local)
     std::uniform_real_distribution<double> dis;       ///< Uniform distribution [0,1]
+    int train_step_counter = 0;                      ///< Steps since last DQN train
 
 public:
     // State variables (public for easy access)
     Position pos;                    ///< Current position on grid
     int energy;                      ///< Current energy level
     int total_food_eaten;            ///< Total food consumed in current episode
-    SDL_Color color;                 ///< Unique color for visualization
+    Color color;                     ///< Unique color for visualization
     int brain_learning_rate;         ///< Visualization parameter
     std::vector<double> synaptic_strength;  ///< Visualization parameter
     std::vector<int> layer_sizes;    ///< Neural network architecture

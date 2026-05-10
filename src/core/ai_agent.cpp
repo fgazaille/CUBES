@@ -10,7 +10,6 @@
  */
 
 #include "ai_agent.hpp"
-#include <SDL2/SDL.h>
 #include <random>
 #include <cmath>
 #include <iostream>
@@ -55,8 +54,8 @@ AI::AI() : update_counter(0), gen(std::random_device{}()),
     layer_sizes = {INPUT_SIZE, HIDDEN_LAYER1_SIZE, HIDDEN_LAYER2_SIZE, OUTPUT_SIZE};
     
     // Create neural networks
-    neural_network = std::make_unique<NeuralNetwork>(layer_sizes, gen, dis);
-    target_network = std::make_unique<NeuralNetwork>(layer_sizes, gen, dis);
+    neural_network = std::make_unique<NeuralNetwork>(layer_sizes, gen);
+    target_network = std::make_unique<NeuralNetwork>(layer_sizes, gen);
     target_network->copy_weights_from(*neural_network);
     
     // Initialize action history
@@ -89,8 +88,8 @@ AI::AI(const std::vector<double>& genome)
     layer_sizes = {INPUT_SIZE, HIDDEN_LAYER1_SIZE, HIDDEN_LAYER2_SIZE, OUTPUT_SIZE};
     
     // Create neural networks and set genome
-    neural_network = std::make_unique<NeuralNetwork>(layer_sizes, gen, dis);
-    target_network = std::make_unique<NeuralNetwork>(layer_sizes, gen, dis);
+    neural_network = std::make_unique<NeuralNetwork>(layer_sizes, gen);
+    target_network = std::make_unique<NeuralNetwork>(layer_sizes, gen);
     neural_network->set_genome(genome);
     target_network->copy_weights_from(*neural_network);
     
@@ -194,25 +193,63 @@ void AI::load_brain_from_json(const std::string& json_str) {
 }
 
 void AI::save_brain_to_file(const std::string& filename) const {
-    std::ofstream file(filename);
-    if (file.is_open()) {
-        file << save_brain_to_json();
-        file.close();
-    } else {
-        throw std::runtime_error("Could not save to file: " + filename);
+    auto try_save = [&](const std::string& path) -> bool {
+        std::ofstream file(path);
+        if (file.is_open()) {
+            file << save_brain_to_json();
+            file.close();
+            return true;
+        }
+        return false;
+    };
+
+    if (try_save(filename)) return;
+
+    // Fallback: extract basename and try common locations
+    std::string basename = filename;
+    auto pos = filename.find_last_of("/\\");
+    if (pos != std::string::npos) basename = filename.substr(pos + 1);
+
+    for (const char* dir : {"", "assets/", "data/", "./", "../assets/"}) {
+        std::string candidate = std::string(dir) + basename;
+        if (candidate != filename && try_save(candidate)) {
+            std::cerr << "Saved brain to " << candidate << " (fallback from " << filename << ")\n";
+            return;
+        }
     }
+
+    throw std::runtime_error("Could not save to file: " + filename);
 }
 
 void AI::load_brain_from_file(const std::string& filename) {
-    std::ifstream file(filename);
-    if (file.is_open()) {
-        std::stringstream buffer;
-        buffer << file.rdbuf();
-        load_brain_from_json(buffer.str());
-        file.close();
-    } else {
-        throw std::runtime_error("Could not open file: " + filename);
+    auto try_load = [&](const std::string& path) -> bool {
+        std::ifstream file(path);
+        if (file.is_open()) {
+            std::stringstream buffer;
+            buffer << file.rdbuf();
+            load_brain_from_json(buffer.str());
+            file.close();
+            return true;
+        }
+        return false;
+    };
+
+    if (try_load(filename)) return;
+
+    // Fallback: try common locations
+    std::string basename = filename;
+    auto pos = filename.find_last_of("/\\");
+    if (pos != std::string::npos) basename = filename.substr(pos + 1);
+
+    for (const char* dir : {"", "assets/", "data/", "./", "../assets/"}) {
+        std::string candidate = std::string(dir) + basename;
+        if (candidate != filename && try_load(candidate)) {
+            std::cerr << "Loaded brain from " << candidate << " (fallback from " << filename << ")\n";
+            return;
+        }
     }
+
+    throw std::runtime_error("Could not open file: " + filename);
 }
 
 // ============================================================================
@@ -362,38 +399,50 @@ void AI::add_experience(const std::vector<double>& state, int action,
 }
 
 void AI::learn_from_experience() {
+    // Only train every TRAIN_INTERVAL steps to reduce computation
+    train_step_counter++;
+    if (train_step_counter < 4) return;
+    train_step_counter = 0;
+    
     if (experience_buffer.size() < BATCH_SIZE) return;
     
-    // Use fixed learning rate for consistent training
     double lr = LEARNING_RATE;
     
-    // Sample mini-batch and train
+    // Sample mini-batch
     std::vector<int> batch_indices;
     for (int i = 0; i < BATCH_SIZE; ++i) {
         batch_indices.push_back(gen() % experience_buffer.size());
     }
     
-    // Train on batch
+    // Train on batch using Double DQN
     for (int idx : batch_indices) {
         const Experience& exp = experience_buffer[idx];
         
-        // Get Q-values from both networks
+        // Get current Q-values from policy network
         std::vector<double> current_q_values = neural_network->forward(exp.state);
-        std::vector<double> next_q_values = target_network->forward(exp.next_state);
         
-        // Maximum Q-value for next state
-        double max_next_q = *std::max_element(next_q_values.begin(), next_q_values.end());
-        
-        // Target Q-values (DQN update rule)
-        std::vector<double> target_q_values = current_q_values;
         if (exp.done) {
-            target_q_values[exp.action] = exp.reward;
+            current_q_values[exp.action] = exp.reward;
         } else {
-            target_q_values[exp.action] = exp.reward + DISCOUNT_FACTOR * max_next_q;
+            // Double DQN: select action using policy network, evaluate using target network
+            std::vector<double> next_q_policy = neural_network->forward(exp.next_state);
+            int best_next_action = 0;
+            double max_q = next_q_policy[0];
+            for (int a = 1; a < OUTPUT_SIZE; ++a) {
+                if (next_q_policy[a] > max_q) {
+                    max_q = next_q_policy[a];
+                    best_next_action = a;
+                }
+            }
+            
+            // Evaluate the selected action using the target network
+            std::vector<double> next_q_target = target_network->forward(exp.next_state);
+            double target_q = next_q_target[best_next_action];
+            
+            current_q_values[exp.action] = exp.reward + DISCOUNT_FACTOR * target_q;
         }
         
-        // Train the network with fixed learning rate
-        neural_network->train(exp.state, target_q_values, lr);
+        neural_network->train(exp.state, current_q_values, lr);
     }
     
     // Periodically update target network
