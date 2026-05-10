@@ -56,7 +56,7 @@ void Environment::reset() {
     RuntimeConfig& cfg = RuntimeConfig::instance();
 
     steps_since_last_reset_ = 0;
-    stagnation_baseline_ = best_food_ever.load();
+    stagnation_baseline_ = total_food_eaten_all_time.load();
 
     int best_idx = 0;
     last_gen_best_food = 0;
@@ -253,11 +253,11 @@ void Environment::run_learning_step() {
         }
     }
 
-    // Reset stagnation counter if best_food_ever improved since last check
-    int current_best = best_food_ever.load();
-    if (current_best > stagnation_baseline_) {
+    // Reset stagnation counter if any food has been eaten since last check
+    int current_total = total_food_eaten_all_time.load();
+    if (current_total > stagnation_baseline_) {
         steps_since_last_reset_ = 0;
-        stagnation_baseline_ = current_best;
+        stagnation_baseline_ = current_total;
     }
 
     // Generation reset when all dead OR stagnation (3000 steps without progress)
