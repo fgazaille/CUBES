@@ -33,6 +33,8 @@ namespace UI {
     inline const Color COL_RED      = {248, 81, 73, 255};
     inline const Color COL_GOLD     = {210, 153, 34, 255};
     inline const Color FOOD_COLOUR  = {86, 201, 100, 255};
+    inline const Color WALL_FILL    = {36, 32, 28, 255};
+    inline const Color WALL_EDGE    = {54, 48, 42, 255};
     inline const Color ENERGY_BAR   = {48, 160, 80, 255};
     inline const Color ENERGY_BG    = {48, 54, 61, 255};
 }

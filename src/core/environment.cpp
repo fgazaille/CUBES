@@ -29,8 +29,10 @@ void Environment::spawn_food() {
 
     for (int i = 0; i < to_spawn; ++i) {
         Food f;
-        f.pos.x = env_gen() % cfg.grid_size;
-        f.pos.y = env_gen() % cfg.grid_size;
+        do {
+            f.pos.x = env_gen() % cfg.grid_size;
+            f.pos.y = env_gen() % cfg.grid_size;
+        } while (is_wall(f.pos.x, f.pos.y));
         f.energy_value = energy_dist(env_gen);
         food_list.push_back(f);
         total_food_spawned++;
@@ -100,8 +102,10 @@ void Environment::reset() {
         }
         AI new_agent = child_genome.empty() ? AI() : AI(child_genome);
         new_agent.energy = MAX_ENERGY;
-        new_agent.pos.x = env_gen() % cfg.grid_size;
-        new_agent.pos.y = env_gen() % cfg.grid_size;
+        do {
+            new_agent.pos.x = 1 + (env_gen() % std::max(1, cfg.grid_size - 2));
+            new_agent.pos.y = 1 + (env_gen() % std::max(1, cfg.grid_size - 2));
+        } while (is_wall(new_agent.pos.x, new_agent.pos.y));
         new_agent.total_food_eaten = 0;
         new_agents.push_back(std::move(new_agent));
     }
@@ -235,8 +239,10 @@ void Environment::run_learning_step() {
                 mutate_genome(child_genome, 0.02);
                 AI new_agent(child_genome);
                 new_agent.energy = MAX_ENERGY;
-                new_agent.pos.x = env_gen() % cfg.grid_size;
-                new_agent.pos.y = env_gen() % cfg.grid_size;
+                do {
+                    new_agent.pos.x = 1 + (env_gen() % std::max(1, cfg.grid_size - 2));
+                    new_agent.pos.y = 1 + (env_gen() % std::max(1, cfg.grid_size - 2));
+                } while (is_wall(new_agent.pos.x, new_agent.pos.y));
                 new_agent.total_food_eaten = 0;
                 agents[i] = std::move(new_agent);
             }
@@ -285,6 +291,11 @@ int Environment::get_alive_count() const {
 }
 
 int Environment::get_episode() const { return episode; }
+
+bool Environment::is_wall(int x, int y) const {
+    RuntimeConfig& cfg = RuntimeConfig::instance();
+    return x == 0 || y == 0 || x == cfg.grid_size - 1 || y == cfg.grid_size - 1;
+}
 
 std::vector<AI>& Environment::get_agents() { return agents; }
 

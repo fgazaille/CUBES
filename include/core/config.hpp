@@ -67,7 +67,7 @@ inline void recalculate_layout() {
     SIDEBAR_WIDTH = SCREEN_WIDTH / 4;
     GRID_WIDTH = SCREEN_WIDTH - SIDEBAR_WIDTH;
     GRID_HEIGHT = SCREEN_HEIGHT;
-    CELL_SIZE = std::max(1, (std::min(GRID_WIDTH, GRID_HEIGHT)) / GRID_SIZE);
+    CELL_SIZE = std::max(1, std::min(GRID_WIDTH, GRID_HEIGHT) / GRID_SIZE);
 }
 
 inline std::string asset_prefix() {

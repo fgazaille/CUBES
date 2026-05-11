@@ -194,8 +194,9 @@ public:
      * 
      * Resets position, energy, and food count.
      * Preserves neural networks and experience buffer.
+     * @param margin Cells to keep clear from grid edges (default 1 for border walls)
      */
-    void respawn();
+    void respawn(int margin = 1);
 
     /**
      * @brief Move the agent in the specified direction.

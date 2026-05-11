@@ -121,6 +121,14 @@ public:
     void run_learning_step();
 
     /**
+     * @brief Check if a grid cell is a wall.
+     *
+     * Border cells (x=0, x=grid_size-1, y=0, y=grid_size-1) are walls.
+     * @return true if the cell is a wall
+     */
+    bool is_wall(int x, int y) const;
+
+    /**
      * @brief Check if simulation is still running.
      * @return true if simulation is active
      */

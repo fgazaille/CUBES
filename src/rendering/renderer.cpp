@@ -4,6 +4,7 @@
 #include <cmath>
 #include <algorithm>
 #include <set>
+#include <climits>
 
 namespace {
     Texture2D agent_tex{};
@@ -14,12 +15,10 @@ namespace {
     constexpr int MAX_HISTORY = 500;
     struct FoodPoint { int episode; int food; };
     std::vector<FoodPoint> agent_history[16];
-    int last_recorded_episode = -1;
     int last_agent_count = -1;
 
     void clear_food_history() {
         for (auto& h : agent_history) h.clear();
-        last_recorded_episode = -1;
         last_agent_count = -1;
     }
 
@@ -40,14 +39,7 @@ void init_renderer(const std::string& asset_path) {
     if (player_img.data) UnloadImage(player_img);
     if (food_img.data)   UnloadImage(food_img);
 
-    int fsize = 0;
-    unsigned char* fdata = LoadFileData((asset_path + "Futura.ttf").c_str(), &fsize);
-    if (fdata) {
-        game_font = LoadFontFromMemory(".ttf", fdata, fsize, 32, nullptr, 0);
-        if (game_font.texture.id == 0)
-            game_font = LoadFontFromMemory(".ttc", fdata, fsize, 32, nullptr, 0);
-        UnloadFileData(fdata);
-    }
+    game_font = LoadFontEx((asset_path + "Futura.ttf").c_str(), 32, nullptr, 0);
     if (game_font.texture.id == 0)
         game_font = GetFontDefault();
 
@@ -101,29 +93,25 @@ void render_environment(const Environment& env,
 
     ClearBackground(UI::BACKGROUND);
     RuntimeConfig& cfg = RuntimeConfig::instance();
-    int cell_size = (SCREEN_WIDTH - SIDEBAR_WIDTH) / cfg.grid_size;
+    int cell_size = std::min(SCREEN_WIDTH - SIDEBAR_WIDTH, SCREEN_HEIGHT) / cfg.grid_size;
     int grid_pixel_width = cell_size * cfg.grid_size;
 
     // ── Record food history ───────────────────────────────────────────────
     {
-        static int last_food_recorded[16] = {};
-        int ep = env.get_episode();
         const auto& agents = env.get_agents();
-        if (ep < last_recorded_episode || (int)agents.size() != last_agent_count) {
+        int current_count = (int)agents.size();
+        if (current_count != last_agent_count) {
             clear_food_history();
-            last_agent_count = (int)agents.size();
-            for (int i = 0; i < 16; ++i) last_food_recorded[i] = -1;
+            last_agent_count = current_count;
         }
         for (size_t i = 0; i < agents.size() && i < 16; ++i) {
             int food = agents[i].total_food_eaten;
-            if (food == last_food_recorded[i]) continue;
-            last_food_recorded[i] = food;
             auto& hist = agent_history[i];
-            hist.push_back({ep, food});
+            int idx = hist.empty() ? 0 : hist.back().episode + 1;
+            hist.push_back({idx, food});
             if (hist.size() > MAX_HISTORY)
                 hist.erase(hist.begin());
         }
-        last_recorded_episode = ep;
     }
 
     // ── Grid ────────────────────────────────────────────────────────────────
@@ -135,14 +123,34 @@ void render_environment(const Environment& env,
         DrawLine(0, x, grid_pixel_width, x, UI::GRID_LINE);
     }
 
+    // ── Walls ───────────────────────────────────────────────────────────────
+    {
+        int gs = cfg.grid_size;
+        for (int x = 0; x < gs; ++x) {
+            for (int y = 0; y < gs; ++y) {
+                if (x != 0 && x != gs - 1 && y != 0 && y != gs - 1) continue;
+                int wx = x * cell_size, wy = y * cell_size;
+                DrawRectangle(wx, wy, cell_size, cell_size, UI::WALL_FILL);
+                DrawRectangleLines(wx, wy, cell_size, cell_size, UI::WALL_EDGE);
+            }
+        }
+    }
+
     // ── Food ────────────────────────────────────────────────────────────────
     for (const auto& food : env.get_food_list()) {
         int fx = food.pos.x * cell_size;
         int fy = food.pos.y * cell_size;
-        float pulse = 0.80f + 0.20f * std::sin(GetTime() * 3.0f + food.pos.x * 7.0f + food.pos.y * 13.0f);
-        int pad = (int)(cell_size * (1.0f - 0.7f * pulse) / 2.0f);
-        int side = cell_size - pad * 2;
-        DrawRectangle(fx + pad, fy + pad, side, side, UI::FOOD_COLOUR);
+        float pulse = 0.75f + 0.25f * std::sin(GetTime() * 3.0f + food.pos.x * 7.0f + food.pos.y * 13.0f);
+        int side = (int)(cell_size * 0.7f * pulse);
+        int pad = (cell_size - side) / 2;
+        Color fc = UI::FOOD_COLOUR;
+        fc.a = (unsigned char)(180 + 75 * pulse);
+        DrawRectangle(fx + pad, fy + pad, side, side, fc);
+        if (side > 4) {
+            Color glow = UI::FOOD_COLOUR;
+            glow.a = 30;
+            DrawRectangle(fx + pad - 1, fy + pad - 1, side + 2, side + 2, glow);
+        }
     }
 
     // ── Agents ──────────────────────────────────────────────────────────────
@@ -174,6 +182,10 @@ void render_environment(const Environment& env,
 
     // ── Sidebar ─────────────────────────────────────────────────────────────
     DrawRectangle(grid_pixel_width, 0, SIDEBAR_WIDTH, SCREEN_HEIGHT, UI::SIDEBAR_BG);
+    if (grid_pixel_width + SIDEBAR_WIDTH < SCREEN_WIDTH)
+        DrawRectangle(grid_pixel_width + SIDEBAR_WIDTH, 0,
+                      SCREEN_WIDTH - grid_pixel_width - SIDEBAR_WIDTH, SCREEN_HEIGHT,
+                      UI::SIDEBAR_BG);
 
     DrawRectangle(grid_pixel_width, 0, SIDEBAR_WIDTH, 50, UI::SIDEBAR_HDR);
     draw_text("AI Simulation Stats", grid_pixel_width + 15, 14, 18, UI::ACCENT);
@@ -231,7 +243,7 @@ void render_environment(const Environment& env,
 
     // Find max food across all history for Y axis scaling
     int max_food = 10;
-    int min_ep = 0;
+    int min_ep = INT_MAX;
     int max_ep = 1;
     bool any_data = false;
     for (const auto& hist : agent_history) {
@@ -241,9 +253,9 @@ void render_environment(const Environment& env,
             if (p.food > max_food) max_food = p.food;
             if (p.episode > max_ep) max_ep = p.episode;
         }
-        min_ep = hist.front().episode;
+        if (hist.front().episode < min_ep) min_ep = hist.front().episode;
     }
-    max_food = ((max_food / 10) + 1) * 10;
+    max_food = std::max(10, ((max_food / 10) + 1) * 10);
 
     // Build best-food-per-episode trace (across all recorded episodes)
     std::vector<FoodPoint> best_trace;
@@ -283,7 +295,7 @@ void render_environment(const Environment& env,
         draw_text("Food/Life", graph_x + 2, plot_y, 9, UI::TEXT_DIM);
 
         // X axis label
-        std::stringstream sx; sx << "Episode";
+        std::stringstream sx; sx << "Step";
         int sxw = (int)MeasureTextEx(game_font, sx.str().c_str(), 9, 1).x;
         draw_text(sx.str(), plot_x + plot_w - sxw - 2, graph_y + graph_h - 16, 9, UI::TEXT_DIM);
 
@@ -291,17 +303,33 @@ void render_environment(const Environment& env,
 
         // Best trace (overlay on per-agent lines)
         Color best_col = {88, 166, 255, 255};
+        {
+            std::vector<Vector2> verts;
+            verts.reserve(best_trace.size() * 2);
+            for (const auto& bt : best_trace) {
+                float x = (float)(plot_x + (bt.episode - min_ep) * plot_w / ep_range);
+                float y = (float)(plot_y + plot_h - bt.food * plot_h / max_food);
+                verts.push_back({x, (float)(plot_y + plot_h)});
+                verts.push_back({x, y});
+            }
+            Color fill_col = best_col;
+            fill_col.a = 18;
+            DrawTriangleStrip(verts.data(), (int)verts.size(), fill_col);
+        }
         for (size_t j = 1; j < best_trace.size(); ++j) {
             int x1 = plot_x + (best_trace[j-1].episode - min_ep) * plot_w / ep_range;
             int y1 = plot_y + plot_h - best_trace[j-1].food * plot_h / max_food;
             int x2 = plot_x + (best_trace[j].episode - min_ep) * plot_w / ep_range;
             int y2 = plot_y + plot_h - best_trace[j].food * plot_h / max_food;
+            y1 = std::max(plot_y, std::min(plot_y + plot_h, y1));
+            y2 = std::max(plot_y, std::min(plot_y + plot_h, y2));
             DrawLine(x1, y1, x2, y2, best_col);
         }
         if (!best_trace.empty()) {
             const auto& last = best_trace.back();
             int lx = plot_x + (last.episode - min_ep) * plot_w / ep_range;
             int ly = plot_y + plot_h - last.food * plot_h / max_food;
+            ly = std::max(plot_y, std::min(plot_y + plot_h, ly));
             DrawCircle(lx, ly, 4, best_col);
             std::string val = std::to_string(last.food);
             int vw = (int)MeasureTextEx(game_font, val.c_str(), 11, 1).x;
@@ -322,6 +350,8 @@ void render_environment(const Environment& env,
                 int y1 = plot_y + plot_h - hist[j-1].food * plot_h / max_food;
                 int x2 = plot_x + (hist[j].episode - min_ep) * plot_w / ep_range;
                 int y2 = plot_y + plot_h - hist[j].food * plot_h / max_food;
+                y1 = std::max(plot_y, std::min(plot_y + plot_h, y1));
+                y2 = std::max(plot_y, std::min(plot_y + plot_h, y2));
                 DrawLine(x1, y1, x2, y2, col);
             }
         }

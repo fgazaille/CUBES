@@ -35,9 +35,13 @@ double Position::distance(const Position& other) const {
 AI::AI() : update_counter(0), gen(std::random_device{}()), 
             dis(0.0, 1.0), brain_learning_rate(0) {
     
-    // Random starting position
-    pos.x = gen() % RuntimeConfig::instance().grid_size;
-    pos.y = gen() % RuntimeConfig::instance().grid_size;
+    // Random starting position (avoid walls)
+    {
+        int gs = RuntimeConfig::instance().grid_size;
+        int playable = std::max(1, gs - 2);
+        pos.x = 1 + (gen() % playable);
+        pos.y = 1 + (gen() % playable);
+    }
     
     // Initial energy at maximum
     energy = MAX_ENERGY;
@@ -69,9 +73,13 @@ AI::AI(const std::vector<double>& genome)
     : update_counter(0), gen(std::random_device{}()), 
       dis(0.0, 1.0), brain_learning_rate(0) {
     
-    // Random starting position
-    pos.x = gen() % RuntimeConfig::instance().grid_size;
-    pos.y = gen() % RuntimeConfig::instance().grid_size;
+    // Random starting position (avoid walls)
+    {
+        int gs = RuntimeConfig::instance().grid_size;
+        int playable = std::max(1, gs - 2);
+        pos.x = 1 + (gen() % playable);
+        pos.y = 1 + (gen() % playable);
+    }
     
     // Initial energy at maximum
     energy = MAX_ENERGY;
@@ -366,20 +374,22 @@ std::optional<Position> AI::find_closest_food(const std::vector<Food>& food_list
 // Environment interaction
 // ============================================================================
 
-void AI::respawn() {
+void AI::respawn(int margin) {
     energy = MAX_ENERGY;
-    pos.x = gen() % RuntimeConfig::instance().grid_size;
-    pos.y = gen() % RuntimeConfig::instance().grid_size;
+    int gs = RuntimeConfig::instance().grid_size;
+    int playable = std::max(1, gs - 2 * margin);
+    pos.x = margin + (gen() % playable);
+    pos.y = margin + (gen() % playable);
     total_food_eaten = 0;
 }
 
 void AI::move(int action) {
     RuntimeConfig& cfg = RuntimeConfig::instance();
     switch (action) {
-        case LEFT:  if (pos.x > 0) pos.x--; break;
-        case RIGHT: if (pos.x < cfg.grid_size - 1) pos.x++; break;
-        case UP:    if (pos.y > 0) pos.y--; break;
-        case DOWN:  if (pos.y < cfg.grid_size - 1) pos.y++; break;
+        case LEFT:  if (pos.x > 1) pos.x--; break;
+        case RIGHT: if (pos.x < cfg.grid_size - 2) pos.x++; break;
+        case UP:    if (pos.y > 1) pos.y--; break;
+        case DOWN:  if (pos.y < cfg.grid_size - 2) pos.y++; break;
     }
     
     // Apply energy decay - allow energy to reach 0 for death
