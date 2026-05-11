@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <string>
 #include <fstream>
+#include <thread>
 
 namespace Config {
 
@@ -112,6 +113,14 @@ struct RuntimeConfig {
     int experience_buffer_size = static_cast<int>(EXPERIENCE_BUFFER_SIZE);
     int batch_size = BATCH_SIZE;
     int target_update_frequency = TARGET_UPDATE_FREQUENCY;
+
+    int max_threads = 0;  // 0 = auto (use all available cores)
+
+    int get_thread_count() const {
+        if (max_threads > 0) return max_threads;
+        int hc = static_cast<int>(std::thread::hardware_concurrency());
+        return hc > 0 ? hc : 1;
+    }
 
     static RuntimeConfig& instance() {
         static RuntimeConfig config;

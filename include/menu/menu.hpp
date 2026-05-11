@@ -107,6 +107,7 @@ private:
     bool editing_buf_size_ = false;
     bool editing_batch_size_ = false;
     bool editing_target_freq_ = false;
+    bool editing_max_threads_ = false;
     char grid_buf_[32]{};
     char agents_buf_[32]{};
     char food_count_buf_[32]{};
@@ -122,6 +123,7 @@ private:
     char buf_size_buf_[32]{};
     char batch_size_buf_[32]{};
     char target_freq_buf_[32]{};
+    char max_threads_buf_[32]{};
 
     void do_home();
     void do_training_config();

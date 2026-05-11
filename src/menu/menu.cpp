@@ -453,6 +453,7 @@ void Menu::do_settings() {
         snprintf(buf_size_buf_, sizeof(buf_size_buf_), "%d", cfg.experience_buffer_size);
         snprintf(batch_size_buf_, sizeof(batch_size_buf_), "%d", cfg.batch_size);
         snprintf(target_freq_buf_, sizeof(target_freq_buf_), "%d", cfg.target_update_frequency);
+        snprintf(max_threads_buf_, sizeof(max_threads_buf_), "%d", cfg.max_threads);
     }
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 36);
@@ -536,6 +537,7 @@ void Menu::do_settings() {
         {"Buffer Size:",      buf_size_buf_, sizeof(buf_size_buf_), &editing_buf_size_,   &cfg.experience_buffer_size,  0, 0,0, 100,500000},
         {"Batch Size:",       batch_size_buf_, sizeof(batch_size_buf_), &editing_batch_size_, &cfg.batch_size,            0, 0,0, 1,1024},
         {"Target Freq:",      target_freq_buf_, sizeof(target_freq_buf_), &editing_target_freq_, &cfg.target_update_frequency, 0,0,0,1,10000},
+        {"CPU Threads:",      max_threads_buf_, sizeof(max_threads_buf_), &editing_max_threads_, &cfg.max_threads,             0, 0,0, 0,64},
     };
 
     for (size_t i = 0; i < sizeof(fields)/sizeof(fields[0]); ++i) {
@@ -543,6 +545,12 @@ void Menu::do_settings() {
         int row = (i < 8) ? static_cast<int>(i) : static_cast<int>(i) - 8;
         draw_field(fields[i], col_x, start_y + row * row_h);
     }
+
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 11);
+    const char* tip = "CPU Threads: 0 = auto (use all cores)";
+    int tip_x = col2_x + label_w;
+    int tip_y = start_y + (8 + 1) * row_h;
+    DrawText(tip, tip_x, tip_y + 8, 11, CLITERAL(Color){100,108,118,255});
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 16);
     if (GuiButton({(float)(cw / 2 - 60), (float)(80 + card_h + 16), 120, 40}, "Back")) {

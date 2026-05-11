@@ -14,6 +14,7 @@ Environment::Environment(bool)
       episode_count_for_avg(0) {
 
     RuntimeConfig& cfg = RuntimeConfig::instance();
+    pool.reset(static_cast<std::size_t>(cfg.get_thread_count()));
     agents.resize(cfg.agent_count);
     respawn_counters.resize(cfg.agent_count, 0);
     spawn_food();
