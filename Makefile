@@ -8,7 +8,7 @@
 
 CXX = g++
 CXXFLAGS = -std=c++17 -Wall -Wextra \
-           -Iinclude -Iinclude/core -Iinclude/rendering -Iinclude/menu -Ithird_party
+           -Iinclude -Iinclude/core -Iinclude/rendering -Iinclude/menu -Iinclude/debug -Ithird_party
 
 LDFLAGS = -lraylib
 
@@ -21,9 +21,11 @@ RENDERING_SRC = src/rendering/renderer.cpp
 
 MENU_SRC = src/menu/menu.cpp
 
+DEBUG_SRC = src/debug/debug_repl.cpp
+
 MAIN_SRC = src/main.cpp
 
-SRC = $(CORE_SRC) $(RENDERING_SRC) $(MENU_SRC) $(MAIN_SRC)
+SRC = $(CORE_SRC) $(RENDERING_SRC) $(MENU_SRC) $(DEBUG_SRC) $(MAIN_SRC)
 OBJ = $(SRC:.cpp=.o)
 TARGET = simulation
 

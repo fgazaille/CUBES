@@ -10,6 +10,7 @@
 Menu::Menu(TrainingStatus* training_status)
     : training_status_ptr_(training_status) {
     snprintf(ep_buf_, sizeof(ep_buf_), "%d", training_config_.episodes);
+    snprintf(par_buf_, sizeof(par_buf_), "%d", training_config_.parallel_envs);
     GuiSetStyle(DEFAULT, TEXT_SIZE, 16);
     GuiSetStyle(DEFAULT, BACKGROUND_COLOR, ColorToInt(CLITERAL(Color){13,17,23,255}));
     GuiSetStyle(BUTTON, BASE_COLOR_NORMAL,   ColorToInt(CLITERAL(Color){30,36,44,255}));
@@ -133,21 +134,21 @@ void Menu::do_training_config() {
     DrawText("Training", (cw - tw) / 2, 25, 36, CLITERAL(Color){88,166,255,255});
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 14);
-    int sw = MeasureText("Optimise a single simulation at maximum speed.", 14);
-    DrawText("Optimise a single simulation at maximum speed.",
+    int sw = MeasureText("Run N parallel simulations for faster exploration.", 14);
+    DrawText("Run N parallel simulations for faster exploration.",
              (cw - sw) / 2, 75, 14, CLITERAL(Color){139,148,158,255});
 
     int px = (cw - 500) / 2;
-    DrawRectangleRounded({(float)px, 110, 500, 200}, 0.1f, 8, CLITERAL(Color){22,27,34,255});
-    DrawRectangleRoundedLines({(float)px, 110, 500, 200}, 0.1f, 8, CLITERAL(Color){48,54,61,255});
+    DrawRectangleRounded({(float)px, 110, 500, 250}, 0.1f, 8, CLITERAL(Color){22,27,34,255});
+    DrawRectangleRoundedLines({(float)px, 110, 500, 250}, 0.1f, 8, CLITERAL(Color){48,54,61,255});
 
     int lx = px + 30;
-    int fx = px + 170;
+    int fx = px + 180;
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 14);
 
-    DrawText("Episodes:", lx, 140, 14, CLITERAL(Color){201,209,217,255});
-    Rectangle ep_r = {(float)fx, 135, 160, 30};
+    DrawText("Episodes:", lx, 135, 14, CLITERAL(Color){201,209,217,255});
+    Rectangle ep_r = {(float)fx, 130, 160, 30};
     if (GuiTextBox(ep_r, ep_buf_, 31, editing_episodes_))
         editing_episodes_ = !editing_episodes_;
     if (!editing_episodes_) {
@@ -155,17 +156,25 @@ void Menu::do_training_config() {
         catch (...) {}
     }
 
-    DrawText("Auto-save brain:", lx, 190, 14, CLITERAL(Color){201,209,217,255});
-    Rectangle as_r = {(float)fx, 185, 80, 28};
+    DrawText("Parallel Envs:", lx, 178, 14, CLITERAL(Color){201,209,217,255});
+    Rectangle par_r = {(float)fx, 173, 160, 30};
+    if (GuiTextBox(par_r, par_buf_, 31, editing_parallel_))
+        editing_parallel_ = !editing_parallel_;
+    if (!editing_parallel_) {
+        try { training_config_.parallel_envs = std::max(1, std::min(64, std::stoi(par_buf_))); }
+        catch (...) {}
+    }
+
+    DrawText("Auto-save brain:", lx, 221, 14, CLITERAL(Color){201,209,217,255});
+    Rectangle as_r = {(float)fx, 216, 80, 28};
     if (GuiButton(as_r, training_config_.auto_save ? "ON" : "OFF"))
         training_config_.auto_save = !training_config_.auto_save;
 
-    // Episode presets
     GuiSetStyle(DEFAULT, TEXT_SIZE, 13);
     struct { const char* label; int val; } qbtns[] = {
         {"1K", 1000}, {"10K", 10000}, {"50K", 50000}, {"100K", 100000}
     };
-    Rectangle qb = {210, 240, 65, 28};
+    Rectangle qb = {(float)px + 170, 270, 65, 28};
     for (auto& q : qbtns) {
         if (GuiButton(qb, q.label)) {
             training_config_.episodes = q.val;
@@ -177,19 +186,20 @@ void Menu::do_training_config() {
     GuiSetStyle(DEFAULT, TEXT_SIZE, 16);
     int btn_w = 140, btn_h = 40, gap = 20;
     int start_x = (cw - 2 * btn_w - gap) / 2;
-    if (GuiButton({(float)start_x, 300, (float)btn_w, (float)btn_h}, "Start Training")) {
+    if (GuiButton({(float)start_x, 330, (float)btn_w, (float)btn_h}, "Start Training")) {
         if (training_start_callback_)
             training_start_callback_(training_config_, training_status_ptr_);
         snprintf(ep_buf_, sizeof(ep_buf_), "%d", training_config_.episodes);
+        snprintf(par_buf_, sizeof(par_buf_), "%d", training_config_.parallel_envs);
         current_state_ = MenuState::TRAINING_ACTIVE;
     }
-    if (GuiButton({(float)(start_x + btn_w + gap), 300, (float)btn_w, (float)btn_h}, "Back"))
+    if (GuiButton({(float)(start_x + btn_w + gap), 330, (float)btn_w, (float)btn_h}, "Back"))
         current_state_ = MenuState::HOME;
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 13);
     const char* tip = "ESC to go back";
     int tix = (cw - MeasureText(tip, 13)) / 2;
-    DrawText(tip, tix, 380, 13, CLITERAL(Color){100,108,118,255});
+    DrawText(tip, tix, 410, 13, CLITERAL(Color){100,108,118,255});
 
     EndDrawing();
 }
@@ -201,11 +211,12 @@ void Menu::do_training_active() {
     ClearBackground(CLITERAL(Color){13,17,23,255});
 
     int cw = GetScreenWidth();
-    int done = 0, total = 0, best = 0;
+    int done = 0, total = 0, best = 0, par = 1;
     if (training_status_ptr_ && training_status_ptr_->active.load()) {
         done  = training_status_ptr_->episodes_done.load();
         total = training_status_ptr_->total_episodes.load();
         best  = training_status_ptr_->best_food.load();
+        par   = training_status_ptr_->parallel_count;
     }
     float prog = (total > 0) ? (float)done / total : 0.0f;
     prog = std::max(0.0f, std::min(1.0f, prog));
@@ -214,7 +225,7 @@ void Menu::do_training_active() {
     int tw = MeasureText("Training", 36);
     DrawText("Training", (cw - tw) / 2, 15, 36, CLITERAL(Color){88,166,255,255});
 
-    std::string best_str = "Best food: " + std::to_string(best);
+    std::string best_str = "Best food: " + std::to_string(best) + "  (" + std::to_string(par) + " parallel)";
     GuiSetStyle(DEFAULT, TEXT_SIZE, 18);
     int bw = MeasureText(best_str.c_str(), 18);
     DrawText(best_str.c_str(), (cw - bw) / 2, 60, 18, CLITERAL(Color){63,185,80,255});

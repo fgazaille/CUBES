@@ -161,67 +161,139 @@ static void run_simulation() {
 // Headless Training
 // ============================================================================
 
+static void run_env_worker(ParallelEnvState* state, int ep_per_env,
+                           std::atomic<int>& global_best, std::atomic<int>& global_total,
+                           std::atomic<int>& global_done, std::atomic<bool>& stop_flag)
+{
+    auto& env = state->env;
+
+    if (std::ifstream(brain_file_path()).good()) {
+        for (size_t i = 0; i < env->get_agents().size(); ++i) {
+            try {
+                env->get_agents()[i].load_brain_from_file(brain_file_path());
+            } catch (...) {}
+        }
+    }
+
+    int local_done = 0;
+    for (int ep = 0; ep < ep_per_env && !stop_flag.load(); ++ep) {
+        env->run_learning_step();
+
+        if (++local_done % 10 == 0) {
+            state->episodes_done.store(local_done);
+            global_done.fetch_add(10);
+        }
+
+        int lb = env->get_best_food_ever();
+        int cur = global_best.load();
+        while (lb > cur && !global_best.compare_exchange_weak(cur, lb));
+
+        state->local_best.store(lb);
+        state->local_total.store(env->get_total_food_all_time());
+
+        int gt = env->get_total_food_all_time();
+        global_total.store(gt);
+    }
+    state->episodes_done.store(local_done);
+}
+
 static void run_training(const TrainingConfig& config, TrainingStatus* status) {
     g_training_stop_flag.store(false);
     status->active.store(true);
     status->episodes_done.store(0);
     status->total_episodes.store(config.episodes);
     status->best_food.store(0);
+    status->total_food_all_time.store(0);
     status->auto_save = config.auto_save;
+    status->parallel_count = config.parallel_envs;
+    status->last_saved_best_.store(0);
 
     if (status->thread.joinable())
         status->thread.join();
 
-    status->thread = std::thread([status, config]() {
-        auto& env = status->env;
-        env = std::make_unique<Environment>(true);
+    status->envs.clear();
+    int num_envs = std::max(1, config.parallel_envs);
+    int eps_per_env = (config.episodes + num_envs - 1) / num_envs;
 
-        if (std::ifstream(brain_file_path()).good()) {
-            std::cout << "Loading assets/brain.json...\n";
-            for (size_t i = 0; i < env->get_agents().size(); ++i) {
-                try {
-                    env->get_agents()[i].load_brain_from_file(brain_file_path());
-                } catch (const std::exception& e) {
-                    std::cerr << "Failed to load brain: " << e.what() << "\n";
-                }
-            }
+    for (int i = 0; i < num_envs; ++i) {
+        auto s = std::make_unique<ParallelEnvState>();
+        s->env = std::make_unique<Environment>(true);
+        status->envs.push_back(std::move(s));
+    }
+
+    status->thread = std::thread([status, num_envs, eps_per_env]() {
+        std::atomic<int> global_done{0};
+
+        for (int i = 0; i < num_envs; ++i) {
+            status->env_pool.detach_task([status, i, eps_per_env, &global_done]() {
+                run_env_worker(status->envs[i].get(), eps_per_env,
+                               status->best_food, status->total_food_all_time,
+                               global_done, g_training_stop_flag);
+            });
         }
 
+        int report_counter = 0;
         int last_best = -1;
-        int episode_counter = 0;
+        while (status->active.load() && !g_training_stop_flag.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            status->episodes_done.store(global_done.load());
 
-        for (int ep = 0; ep < config.episodes &&
-             !g_training_stop_flag.load(); ++ep) {
+            if (++report_counter % 50 == 0) {
+                int cb = status->best_food.load();
+                int total = status->total_food_all_time.load();
 
-            env->run_learning_step();
-
-            if (++episode_counter % 10 == 0)
-                status->episodes_done.fetch_add(10);
-
-            if (episode_counter % 100 == 0) {
-                int cb = env->get_best_food_ever();
-
-                int total_food = env->get_total_food_all_time();
                 {
                     std::lock_guard<std::mutex> hlock(status->history_mutex);
-                    status->food_history.push_back({status->episodes_done.load(), cb, total_food});
+                    status->food_history.push_back({status->episodes_done.load(), cb, total});
                     if (status->food_history.size() > 5000)
                         status->food_history.erase(status->food_history.begin());
                 }
 
-                if (cb > status->best_food.load()) {
-                    status->best_food.store(cb);
+                if (status->auto_save) {
+                    int save_threshold = status->last_saved_best_.load() + 5;
+                    if (cb >= save_threshold) {
+                        status->last_saved_best_.store(cb);
+                        int best_env_idx = 0;
+                        int best_found = 0;
+                        for (size_t e = 0; e < status->envs.size(); ++e) {
+                            int le = status->envs[e]->local_best.load();
+                            if (le > best_found) {
+                                best_found = le;
+                                best_env_idx = (int)e;
+                            }
+                        }
+                        auto& agents = status->envs[best_env_idx]->env->get_agents();
+                        int best_agent = 0;
+                        for (size_t a = 0; a < agents.size(); ++a) {
+                            if (agents[a].total_food_eaten > agents[best_agent].total_food_eaten)
+                                best_agent = (int)a;
+                        }
+                        try {
+                            agents[best_agent].save_brain_to_file(brain_file_path());
+                            std::cout << "[" << status->episodes_done.load() << " steps] Brain saved: " << cb << " food\n";
+                        } catch (...) {}
+                    }
                 }
 
                 if (cb != last_best) {
                     last_best = cb;
-                    std::cout << "Step " << (ep + 1) << " Best: " << cb << " food\n";
+                    std::cout << "Parallel step " << status->episodes_done.load() << " Best: " << cb << " food\n";
                 }
             }
+
+            bool all_done = true;
+            for (auto& e : status->envs) {
+                if (e->episodes_done.load() < eps_per_env) {
+                    all_done = false;
+                    break;
+                }
+            }
+            if (all_done || g_training_stop_flag.load()) break;
         }
 
+        status->env_pool.wait();
         status->active.store(false);
-        std::cout << "\nTraining complete! Best food: " << last_best << "\n";
+        std::cout << "\nTraining complete! Best food: " << status->best_food.load() << "\n";
     });
 }
 
@@ -266,11 +338,10 @@ int main(int argc, char** argv) {
 
         switch (menu.run()) {
             case MenuState::START_SIM: {
-                // Join any lingering training thread
                 if (training_status.thread.joinable()) {
                     g_training_stop_flag.store(true);
                     training_status.thread.join();
-                    training_status.env.reset();
+                    training_status.envs.clear();
                     g_training_stop_flag.store(false);
                 }
                 run_simulation();
@@ -284,12 +355,11 @@ int main(int argc, char** argv) {
         }
     }
 
-    // Final cleanup of training thread
     if (training_status.thread.joinable()) {
         g_training_stop_flag.store(true);
         training_status.thread.join();
     }
-    training_status.env.reset();
+    training_status.envs.clear();
 
     CloseWindow();
     return 0;

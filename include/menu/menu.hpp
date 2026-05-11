@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config.hpp"
+#include "BS_thread_pool.hpp"
 #include "raylib.h"
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
@@ -27,6 +28,14 @@ struct TrainingFoodPoint {
 struct TrainingConfig {
     int episodes = 10000;
     bool auto_save = true;
+    int parallel_envs = 4;
+};
+
+struct ParallelEnvState {
+    std::unique_ptr<Environment> env;
+    std::atomic<int> episodes_done{0};
+    std::atomic<int> local_best{0};
+    std::atomic<int> local_total{0};
 };
 
 struct TrainingStatus {
@@ -34,11 +43,15 @@ struct TrainingStatus {
     std::atomic<int> episodes_done{0};
     std::atomic<int> total_episodes{0};
     std::atomic<int> best_food{0};
+    std::atomic<int> total_food_all_time{0};
     std::thread thread;
-    std::unique_ptr<Environment> env;
+    std::vector<std::unique_ptr<ParallelEnvState>> envs;
+    BS::light_thread_pool env_pool;
     bool auto_save = false;
+    int parallel_count = 1;
     std::vector<TrainingFoodPoint> food_history;
     std::mutex history_mutex;
+    std::atomic<int> last_saved_best_{0};
 };
 
 using TrainingStartCallback = std::function<void(const TrainingConfig&, TrainingStatus*)>;
@@ -74,6 +87,8 @@ private:
 
     bool editing_episodes_ = false;
     char ep_buf_[32]{};
+    bool editing_parallel_ = false;
+    char par_buf_[32]{};
 
     // Settings editing state
     bool editing_grid_ = false;
