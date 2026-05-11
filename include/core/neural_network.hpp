@@ -1,252 +1,115 @@
-/**
- * @file neural_network.hpp"
- * @brief Neural network implementation with backpropagation for reinforcement learning."
- * "
- * This module implements a feedforward neural network with:"
- * - Multiple hidden layers with ReLU activation"
- * - Xavier initialization for weights"
- * - Backpropagation for training"
- * - Genetic algorithm support (mutation, genome serialization)"
- * - Target network support for DQN (Deep Q-Network)"
- * "
- * The network is used by AI agents to approximate Q-values for"
- * state-action pairs in the reinforcement learning setup."
- */
-
 #pragma once
 
 #include <vector>
 #include <random>
+#include <cstddef>
 
-/**
- * @brief A single layer in the neural network.
- * 
- * Each layer contains:
- * - Weights matrix (output_size x input_size)
- * - Biases vector (output_size)
- * - Cached last output for backpropagation
- * 
- * Uses ReLU activation for hidden layers: f(x) = max(0, x)
- * Output layer uses linear activation (no ReLU) so Q-values can be negative.
- */
 class Layer {
 private:
-    int input_size;                          ///< Number of inputs to this layer
-    int output_size;                         ///< Number of neurons in this layer
-    std::vector<std::vector<double>> weights; ///< Weight matrix [output][input]
-    std::vector<double> biases;               ///< Bias vector [output]
-    std::vector<double> last_output;          ///< Cached output from last forward pass
-    bool use_relu;                            ///< Whether to apply ReLU activation
-    std::vector<double> last_input;           ///< Cached input from last forward pass
+    int input_size;
+    int output_size;
+    std::vector<double> weights;
+    std::vector<double> biases;
+    std::vector<double> last_output;
+    std::vector<double> last_input;
+    bool use_relu;
+    double* w_data = nullptr;
 
-    // Adam optimizer state
-    std::vector<std::vector<double>> m_weights; ///< First moment for weights
-    std::vector<double> m_biases;               ///< First moment for biases
-    std::vector<std::vector<double>> v_weights; ///< Second moment for weights
-    std::vector<double> v_biases;               ///< Second moment for biases
-    int adam_t;                                 ///< Adam timestep counter
+    // Adam optimizer state (flat storage)
+    std::vector<double> m_weights;
+    std::vector<double> v_weights;
+    std::vector<double> m_biases;
+    std::vector<double> v_biases;
+    int adam_t = 0;
+
+    size_t w_stride = 0;
 
 public:
-    /**
-     * @brief Construct a new Layer with Xavier initialization.
-     * 
-     * @param input_size Number of input connections per neuron
-     * @param output_size Number of neurons in this layer
-     * @param gen Random number generator (must be initialized by caller)
-     * @param dis Uniform distribution for bias initialization
-     * @param use_relu Whether to apply ReLU activation (false for output layer)
-     */
     Layer(int input_size, int output_size, std::mt19937& gen, bool use_relu = true);
 
-    /**
-     * @brief ReLU activation function.
-     * @param x Input value
-     * @return max(0, x)
-     */
     [[nodiscard]] constexpr double relu(double x) const noexcept {
         return std::max(0.0, x);
     }
 
-    /**
-     * @brief Forward pass through the layer.
-     * 
-     * Computes: output[i] = ReLU(sum_j(weights[i][j] * input[j]) + biases[i])
-     * 
-     * @param input Input vector of size input_size
-     * @return Output vector of size output_size (cached in last_output)
-     */
-    [[nodiscard]] std::vector<double> forward(const std::vector<double>& input);
-
-    /**
-     * @brief Update weights using gradient descent.
-     * 
-     * @param input Input that produced the activation
-     * @param gradient Gradient from next layer (same size as output)
-     * @param learning_rate Step size for weight updates
-     */
-    void update_weights(const std::vector<double>& input, 
-                       const std::vector<double>& gradient, 
-                       double learning_rate);
-
-    /**
-     * @brief Get activation value of a specific neuron.
-     * @param layer_index Index of the layer (0-based)
-     * @param neuron_index Index of the neuron within the layer
-     * @return Last activation value of the neuron
-     */
-    [[nodiscard]] double get_layer_output(int layer_index, int neuron_index) const;
-    
-    /**
-     * @brief Get weight between two neurons.
-     * @param layer_index Index of the source layer
-     * @param neuron_index Index of the source neuron
-     * @param next_neuron_index Index of the target neuron
-     * @return Weight value
-     */
-    [[nodiscard]] double get_weight(int layer_index, int neuron_index, int next_neuron_index) const;
-
-    /**
-     * @brief Serialize network weights and biases into a flat vector.
-     * 
-     * Useful for genetic algorithms where the entire network is treated
-     * as a genome that can be crossed over and mutated.
-     * 
-     * @return Flattened genome vector
-     */
-    [[nodiscard]] std::vector<double> get_genome() const;
-
-    /**
-     * @brief Reconstruct network from a genome vector.
-     * 
-     * @param genome Flattened vector containing all weights and biases
-     */
-    void set_genome(const std::vector<double>& genome);
-
-    /**
-     * @brief Compute gradient for the previous layer during backpropagation.
-     * 
-     * @param next_layer_gradient Gradient from the next layer
-     * @return Gradient for the previous layer
-     */
-    [[nodiscard]] std::vector<double> compute_gradient(const std::vector<double>& next_layer_gradient);
-
-    /**
-     * @brief Apply random mutations to weights and biases.
-     * 
-     * @param mutation_rate Probability of mutating each parameter
-     * @param gen Random number generator
-     * @param dis Uniform distribution for decisions
-     */
-    void mutate(double mutation_rate, std::mt19937& gen, std::uniform_real_distribution<double>& dis);
-
-    // Accessors
-    const std::vector<std::vector<double>>& get_weights() const { return weights; }
-    const std::vector<double>& get_biases() const { return biases; }
-    const std::vector<double>& get_last_output() const { return last_output; }
-    
-    void set_weights(const std::vector<std::vector<double>>& new_weights) { weights = new_weights; }
-    void set_biases(const std::vector<double>& new_biases) { biases = new_biases; }
-};
-
-/**
- * @brief Feedforward neural network with multiple layers.
- * 
- * Supports:
- * - Forward propagation
- * - Backpropagation training
- * - Target network copying (for DQN)
- * - Genetic operations (mutation)
- * - Genome serialization/deserialization
- */
-class NeuralNetwork {
-private:
-    std::vector<Layer> layers;               ///< Network layers
-    std::vector<std::vector<double>> layer_inputs; ///< Cached inputs to each layer
-
-public:
-    /**
-     * @brief Construct a new Neural Network.
-     * 
-     * @param layer_sizes Vector specifying the size of each layer.
-     *                  First element is input size, last is output size.
-     *                  Example: {12, 32, 16, 4} = input=12, two hidden layers, output=4
-     * @param gen Random number generator
-     * @param dis Distribution for initialization
-     */
-    NeuralNetwork(const std::vector<int>& layer_sizes, std::mt19937& gen);
-
-    /**
-     * @brief Forward pass through the entire network.
-     * 
-     * @param input Input vector (must match input layer size)
-     * @return Output vector (matches output layer size)
-     */
-    [[nodiscard]] std::vector<double> forward(const std::vector<double>& input);
-    
-    /**
-     * @brief Forward pass reusing output vector (reduces allocation).
-     * 
-     * @param input Input vector (must match input layer size)
-     * @param output Pre-allocated output vector to fill
-     */
     void forward(const std::vector<double>& input, std::vector<double>& output);
 
-    /**
-     * @brief Train the network using backpropagation with MSE loss.
-     * 
-     * Computes gradients using:
-     * - MSE loss: L = (predicted - target)²
-     * - Gradient: dL/dy = 2 * (predicted - target)
-     * 
-     * @param input Input state
-     * @param target Desired output (Q-values)
-     * @param learning_rate Step size for weight updates
-     */
-    void train(const std::vector<double>& input, 
-               const std::vector<double>& target, 
-               double learning_rate);
+    [[nodiscard]] std::vector<double> forward(const std::vector<double>& input) {
+        std::vector<double> out(output_size);
+        forward(input, out);
+        return out;
+    }
 
-    /**
-     * @brief Copy weights from another network (for target network updates).
-     * 
-     * Used in DQN to maintain a separate target network that updates
-     * less frequently than the main network, improving training stability.
-     * 
-     * @param other Source network to copy from
-     */
-    void copy_weights_from(const NeuralNetwork& other);
+    void update_weights(const std::vector<double>& input,
+                       const std::vector<double>& gradient,
+                       double learning_rate);
 
-    /**
-     * @brief Apply mutation to all layers.
-     * 
-     * @param mutation_rate Probability of mutating each parameter
-     * @param gen Random number generator
-     * @param dis Distribution for decisions
-     */
+    [[nodiscard]] std::vector<double> compute_gradient(const std::vector<double>& next_layer_gradient);
+
     void mutate(double mutation_rate, std::mt19937& gen, std::uniform_real_distribution<double>& dis);
 
-    // Visualization helpers
-    [[nodiscard]] double get_layer_output(int layer_index, int neuron_index) const;
-    [[nodiscard]] double get_weight(int layer_index, int neuron_index, int next_neuron_index) const;
+    void get_genome(std::vector<double>& out) const;
+    [[nodiscard]] std::vector<double> get_genome() const {
+        std::vector<double> out;
+        get_genome(out);
+        return out;
+    }
 
-    /**
-     * @brief Serialize network weights and biases into a flat vector.
-     * 
-     * Useful for genetic algorithms where the entire network is treated
-     * as a genome that can be crossed over and mutated.
-     * 
-     * @return Flattened genome vector
-     */
-    [[nodiscard]] std::vector<double> get_genome() const;
+    bool set_genome(const std::vector<double>& genome, size_t& offset);
 
-    /**
-     * @brief Reconstruct network from a genome vector.
-     * 
-     * @param genome Flattened vector containing all weights and biases
-     */
-    void set_genome(const std::vector<double>& genome);
+    const std::vector<double>& get_last_output() const { return last_output; }
+    const std::vector<double>& get_last_input() const { return last_input; }
 
+    const double* get_weights_ptr() const { return weights.data(); }
+    const double* get_biases_ptr() const { return biases.data(); }
+    int get_input_size() const { return input_size; }
+    int get_output_size() const { return output_size; }
+    size_t get_w_stride() const { return w_stride; }
+    bool get_use_relu() const { return use_relu; }
+
+    size_t get_genome_size() const {
+        return weights.size() + biases.size();
+    }
+
+    void copy_weights_and_biases(const Layer& other);
+    void set_weights_array(const double* w, const double* b);
+};
+
+class NeuralNetwork {
 private:
-    // Cached vectors to avoid reallocation during forward passes
-    std::vector<double> forward_cache_;  ///< Cache for forward pass computations
+    std::vector<Layer> layers;
+
+    // Pre-allocated workspace for forward/train
+    std::vector<double> fwd_workspace_;
+
+public:
+    NeuralNetwork(const std::vector<int>& layer_sizes, std::mt19937& gen);
+
+    void forward(const std::vector<double>& input, std::vector<double>& output);
+
+    [[nodiscard]] std::vector<double> forward(const std::vector<double>& input) {
+        std::vector<double> out;
+        forward(input, out);
+        return out;
+    }
+
+    void train(const std::vector<double>& input,
+               const std::vector<double>& target,
+               double learning_rate);
+
+    void copy_weights_from(const NeuralNetwork& other);
+
+    void mutate(double mutation_rate, std::mt19937& gen, std::uniform_real_distribution<double>& dis);
+
+    [[nodiscard]] double get_layer_output(int layer_index, int neuron_index) const {
+        return layers[layer_index].get_last_output()[neuron_index];
+    }
+
+    void get_genome(std::vector<double>& out) const;
+    [[nodiscard]] std::vector<double> get_genome() const {
+        std::vector<double> out;
+        get_genome(out);
+        return out;
+    }
+
+    bool set_genome(const std::vector<double>& genome);
 };

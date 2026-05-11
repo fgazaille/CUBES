@@ -88,13 +88,13 @@ void Environment::reset() {
     episode++;
 
     std::vector<AI> new_agents;
+    new_agents.reserve(cfg.agent_count);
     for (int i = 0; i < cfg.agent_count; ++i) {
         std::vector<double> child_genome;
         if (!agents.empty()) {
             size_t src_idx = i % agents.size();
-            std::vector<double> template_genome = agents[src_idx].get_neural_network()->get_genome();
-            if (!template_genome.empty()) {
-                child_genome = template_genome;
+            agents[src_idx].get_neural_network()->get_genome(child_genome);
+            if (!child_genome.empty()) {
                 mutate_genome(child_genome, 0.02);
             }
         }
@@ -117,58 +117,68 @@ void Environment::run_learning_step() {
     RuntimeConfig& cfg = RuntimeConfig::instance();
     steps_since_last_reset_++;
 
+    // Single food snapshot shared by all agents (avoids per-agent copy)
+    const std::vector<Food> food_snapshot = food_list;
+
     for (size_t idx = 0; idx < agents.size(); ++idx) {
         if (!agents[idx].is_alive()) continue;
 
-        pool.detach_task([this, idx, &food_consumed, &consumed_mutex]() {
+        pool.detach_task([this, idx, &food_snapshot, &food_consumed, &consumed_mutex]() {
             auto& agent = agents[idx];
-            std::vector<Food> local_food = food_list;
 
-            std::vector<double> current_state = agent.get_state_representation(local_food);
-            auto prev_closest_food = agent.find_closest_food(local_food);
-            double prev_distance = prev_closest_food.has_value() ? agent.pos.distance(prev_closest_food.value()) : 0.0;
+            std::vector<double> current_state(INPUT_SIZE);
+            std::vector<double> next_state(INPUT_SIZE);
+            agent.get_state_representation(food_snapshot, current_state);
 
-            int action = agent.choose_action(local_food, &current_state);
+            auto prev_closest = agent.find_closest_food(food_snapshot);
+            double prev_dist = prev_closest.has_value()
+                ? agent.pos.distance(prev_closest.value()) : 0.0;
+
+            int action = agent.choose_action(food_snapshot, &current_state);
             Position prev_pos = agent.pos;
             agent.move(action);
 
             double reward = 0.0;
             bool agent_done = false;
-            int consumed_index = -1;
+            int consumed_idx = -1;
 
-            for (size_t k = 0; k < local_food.size(); ++k) {
-                if (agent.pos.x == local_food[k].pos.x && agent.pos.y == local_food[k].pos.y) {
-                    int food_value = local_food[k].energy_value;
+            for (size_t k = 0; k < food_snapshot.size(); ++k) {
+                if (agent.pos.x == food_snapshot[k].pos.x &&
+                    agent.pos.y == food_snapshot[k].pos.y) {
+                    int food_value = food_snapshot[k].energy_value;
                     reward += 5.0 + 0.1 * food_value;
                     agent.energy += food_value;
                     if (agent.energy > MAX_ENERGY) agent.energy = MAX_ENERGY;
                     agent.total_food_eaten++;
                     total_food_eaten_this_episode++;
                     total_food_eaten_all_time++;
-                    consumed_index = static_cast<int>(k);
+                    consumed_idx = static_cast<int>(k);
                     {
-                        std::lock_guard<std::mutex> lock2(consumed_mutex);
-                        food_consumed.push_back({static_cast<int>(idx), static_cast<int>(k)});
+                        std::lock_guard<std::mutex> lk(consumed_mutex);
+                        food_consumed.push_back({static_cast<int>(idx), consumed_idx});
                     }
                     break;
                 }
             }
 
-            // Track best-food-ever from this agent
             {
                 int ate = agent.total_food_eaten;
                 int cur = best_food_ever.load();
                 while (ate > cur && !best_food_ever.compare_exchange_weak(cur, ate));
             }
 
-            if (consumed_index >= 0)
-                local_food.erase(local_food.begin() + consumed_index);
-
-            auto next_closest_food = agent.find_closest_food(local_food);
-            double next_distance = next_closest_food.has_value() ? agent.pos.distance(next_closest_food.value()) : prev_distance;
-            double distance_change = prev_distance - next_distance;
-            reward += distance_change * 0.3;
-
+            // Compute next-state distance (skip consumed food index)
+            double next_dist = prev_dist;
+            if (!food_snapshot.empty()) {
+                double min_d = 1e9;
+                for (size_t k = 0; k < food_snapshot.size(); ++k) {
+                    if (static_cast<int>(k) == consumed_idx) continue;
+                    double d = agent.pos.distance(food_snapshot[k].pos);
+                    if (d < min_d) min_d = d;
+                }
+                if (min_d < 1e9) next_dist = min_d;
+            }
+            reward += (prev_dist - next_dist) * 0.3;
             reward -= 0.1;
             if (prev_pos == agent.pos) reward -= 0.5;
 
@@ -178,18 +188,14 @@ void Environment::run_learning_step() {
                 agent_done = true;
             }
 
-            std::vector<double> next_state = agent.get_state_representation(local_food);
+            agent.get_state_representation(food_snapshot, next_state);
             agent.add_experience(current_state, action, reward, next_state, agent_done);
             agent.learn_from_experience();
             agent.decay_exploration();
-            
-            // === Respawn if dead (experience already stored with done=true) ===
+
             if (agent_done) {
-                {
-                    std::lock_guard<std::mutex> lock(consumed_mutex);
-                    std::cout << "Agent " << idx << " died! Respawning..." << std::endl;
-                    agent_food_history[idx].push_back(agent.total_food_eaten);
-                }
+                std::lock_guard<std::mutex> lk(consumed_mutex);
+                std::cout << "Agent " << idx << " died! Respawning..." << std::endl;
                 agent.respawn();
             }
         });
@@ -197,7 +203,7 @@ void Environment::run_learning_step() {
 
     pool.wait();
 
-    // Fix C2: deduplicate food indices before removal
+    // Deduplicate consumed food indices
     {
         std::set<int, std::greater<int>> consumed_set;
         for (const auto& c : food_consumed)
@@ -210,25 +216,18 @@ void Environment::run_learning_step() {
 
     check_food_reset();
 
-    // Agent respawning
-    int alive_count = 0;
+    // Find best agent's genome for respawn template
     std::vector<double> template_genome;
-    bool found_template = false;
-    for (const auto& agent : agents) {
-        if (agent.is_alive()) alive_count++;
-        if (!agent.is_alive() && !found_template) {
-            template_genome = agent.get_neural_network()->get_genome();
-            found_template = true;
+    int best_alive_idx = -1;
+    int best_food = -1;
+    for (size_t i = 0; i < agents.size(); ++i) {
+        if (agents[i].total_food_eaten > best_food) {
+            best_food = agents[i].total_food_eaten;
+            best_alive_idx = static_cast<int>(i);
         }
     }
-    if (!found_template) {
-        for (const auto& agent : agents) {
-            if (agent.is_alive()) {
-                template_genome = agent.get_neural_network()->get_genome();
-                break;
-            }
-        }
-    }
+    if (best_alive_idx >= 0)
+        agents[best_alive_idx].get_neural_network()->get_genome(template_genome);
 
     if (!template_genome.empty()) {
         for (size_t i = 0; i < agents.size(); ++i) {
@@ -245,7 +244,7 @@ void Environment::run_learning_step() {
         }
     }
 
-    // Save brain when best_food_ever improves significantly (≥5 new food, not every step)
+    // Save brain when best_food_ever improves significantly (>=5 new food)
     {
         int cur_best = best_food_ever.load();
         if (cur_best >= last_saved_best_food_ + 5) {
@@ -263,14 +262,17 @@ void Environment::run_learning_step() {
         }
     }
 
-    // Reset stagnation counter if any food has been eaten since last check
     int current_total = total_food_eaten_all_time.load();
     if (current_total > stagnation_baseline_) {
         steps_since_last_reset_ = 0;
         stagnation_baseline_ = current_total;
     }
 
-    // Generation reset when all dead OR stagnation (3000 steps without progress)
+    int alive_count = 0;
+    for (const auto& agent : agents) {
+        if (agent.is_alive()) alive_count++;
+    }
+
     bool all_dead = (alive_count == 0);
     bool stagnant = (steps_since_last_reset_ >= 3000);
     if (all_dead || stagnant) reset();

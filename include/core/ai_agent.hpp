@@ -74,16 +74,21 @@ struct Food {
  */
 class AI {
 private:
-    double explore_rate;                        ///< Current exploration rate (epsilon)
-    std::unique_ptr<NeuralNetwork> neural_network;    ///< Policy network (main Q-network)
-    std::unique_ptr<NeuralNetwork> target_network;    ///< Target network for stable DQN
-    std::deque<Experience> experience_buffer;         ///< Experience replay buffer
-    int update_counter;                              ///< Counts steps since last target update
-    std::vector<double> last_q_values;               ///< Q-values from last action (for visualization)
-    std::vector<Action> last_actions;                ///< History of recent actions
-    std::mt19937 gen;                               ///< Random number generator (thread-local)
-    std::uniform_real_distribution<double> dis;       ///< Uniform distribution [0,1]
-    int train_step_counter = 0;                      ///< Steps since last DQN train
+    double explore_rate;
+    std::unique_ptr<NeuralNetwork> neural_network;
+    std::unique_ptr<NeuralNetwork> target_network;
+    std::deque<Experience> experience_buffer;
+    int update_counter = 0;
+    std::vector<double> last_q_values;
+    std::vector<Action> last_actions;
+    std::mt19937 gen;
+    std::uniform_real_distribution<double> dis;
+    int train_step_counter = 0;
+
+    // Pre-allocated buffers for no-alloc forward/training
+    std::vector<double> state_buffer_;
+    std::vector<double> q_buffer_;
+    std::vector<double> target_buffer_;
 
 public:
     // State variables (public for easy access)
@@ -152,29 +157,18 @@ public:
     // ========================================================================
 
     /**
-     * @brief Convert current world state to neural network input.
-     * 
-     * State vector (12 values):
-     * - [0-1]: Normalized agent position (x, y)
-     * - [2]: Normalized energy level
-     * - [3]: Normalized distance to closest food
-     * - [4-7]: Direction to closest food (one-hot encoded: left, right, up, down)
-     * - [8-11]: Boundary awareness (distance from each edge)
-     * 
-     * @param food_list Current food positions
-     * @return State vector of size INPUT_SIZE
+     * @brief Convert current world state to neural network input (no-alloc version).
      */
-    [[nodiscard]] std::vector<double> get_state_representation(const std::vector<Food>& food_list) const;
+    void get_state_representation(const std::vector<Food>& food_list, std::vector<double>& state) const;
+
+    [[nodiscard]] std::vector<double> get_state_representation(const std::vector<Food>& food_list) const {
+        std::vector<double> state(INPUT_SIZE);
+        get_state_representation(food_list, state);
+        return state;
+    }
 
     /**
      * @brief Choose an action using epsilon-greedy policy.
-     * 
-     * With probability epsilon: explore (random action, biased toward food)
-     * With probability 1-epsilon: exploit (action with highest Q-value)
-     * 
-     * @param food_list Current food positions
-     * @param precomputed_state Optional pre-computed state to avoid recomputation
-     * @return Chosen action (0-3: LEFT, RIGHT, UP, DOWN)
      */
     [[nodiscard]] int choose_action(const std::vector<Food>& food_list, const std::vector<double>* precomputed_state = nullptr);
 
