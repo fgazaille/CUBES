@@ -91,14 +91,37 @@ private:
     char par_buf_[32]{};
 
     // Settings editing state
+    bool settings_inited_ = false;
     bool editing_grid_ = false;
     bool editing_agents_ = false;
     bool editing_food_count_ = false;
+    bool editing_food_energy_ = false;
     bool editing_food_thresh_ = false;
+    bool editing_max_energy_ = false;
+    bool editing_energy_decay_ = false;
+    bool editing_lr_ = false;
+    bool editing_discount_ = false;
+    bool editing_explore_init_ = false;
+    bool editing_explore_decay_ = false;
+    bool editing_explore_min_ = false;
+    bool editing_buf_size_ = false;
+    bool editing_batch_size_ = false;
+    bool editing_target_freq_ = false;
     char grid_buf_[32]{};
     char agents_buf_[32]{};
     char food_count_buf_[32]{};
+    char food_energy_buf_[32]{};
     char food_thresh_buf_[32]{};
+    char max_energy_buf_[32]{};
+    char energy_decay_buf_[32]{};
+    char lr_buf_[32]{};
+    char discount_buf_[32]{};
+    char explore_init_buf_[32]{};
+    char explore_decay_buf_[32]{};
+    char explore_min_buf_[32]{};
+    char buf_size_buf_[32]{};
+    char batch_size_buf_[32]{};
+    char target_freq_buf_[32]{};
 
     void do_home();
     void do_training_config();

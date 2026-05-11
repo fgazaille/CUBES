@@ -45,8 +45,8 @@ MenuState Menu::run() {
             switch (current_state_) {
                 case MenuState::HOME:     current_state_ = MenuState::EXIT; break;
                 case MenuState::TRAINING_CONFIG:
-                case MenuState::SETTINGS:
                 case MenuState::ABOUT:    current_state_ = MenuState::HOME; break;
+                case MenuState::SETTINGS: settings_inited_ = false; current_state_ = MenuState::HOME; break;
                 case MenuState::TRAINING_ACTIVE:
                     g_training_stop_flag.store(true);
                     current_state_ = MenuState::HOME;
@@ -435,45 +435,120 @@ void Menu::do_settings() {
     int cw = GetScreenWidth();
     RuntimeConfig& cfg = RuntimeConfig::instance();
 
+    // Initialize buffers once when entering settings
+    if (!settings_inited_) {
+        settings_inited_ = true;
+        snprintf(grid_buf_, sizeof(grid_buf_), "%d", cfg.grid_size);
+        snprintf(agents_buf_, sizeof(agents_buf_), "%d", cfg.agent_count);
+        snprintf(food_count_buf_, sizeof(food_count_buf_), "%d", cfg.food_count);
+        snprintf(food_energy_buf_, sizeof(food_energy_buf_), "%d", cfg.food_energy);
+        snprintf(food_thresh_buf_, sizeof(food_thresh_buf_), "%d", cfg.food_reset_threshold);
+        snprintf(max_energy_buf_, sizeof(max_energy_buf_), "%d", cfg.max_energy);
+        snprintf(energy_decay_buf_, sizeof(energy_decay_buf_), "%d", cfg.energy_decay);
+        snprintf(lr_buf_, sizeof(lr_buf_), "%.4f", cfg.learning_rate);
+        snprintf(discount_buf_, sizeof(discount_buf_), "%.3f", cfg.discount_factor);
+        snprintf(explore_init_buf_, sizeof(explore_init_buf_), "%.3f", cfg.initial_explore_rate);
+        snprintf(explore_decay_buf_, sizeof(explore_decay_buf_), "%.4f", cfg.explore_decay);
+        snprintf(explore_min_buf_, sizeof(explore_min_buf_), "%.3f", cfg.min_explore_rate);
+        snprintf(buf_size_buf_, sizeof(buf_size_buf_), "%d", cfg.experience_buffer_size);
+        snprintf(batch_size_buf_, sizeof(batch_size_buf_), "%d", cfg.batch_size);
+        snprintf(target_freq_buf_, sizeof(target_freq_buf_), "%d", cfg.target_update_frequency);
+    }
+
     GuiSetStyle(DEFAULT, TEXT_SIZE, 36);
     int tw = MeasureText("Settings", 36);
     DrawText("Settings", (cw - tw) / 2, 25, 36, CLITERAL(Color){88,166,255,255});
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 14);
-    int sw = MeasureText("Adjust simulation parameters.", 14);
-    DrawText("Adjust simulation parameters.",
-             (cw - sw) / 2, 75, 14, CLITERAL(Color){139,148,158,255});
 
-    int px = (cw - 500) / 2;
-    DrawRectangleRounded({(float)(px + 3), (float)(110 + 3), 500, 350}, 0.1f, 8, CLITERAL(Color){8,11,16,255});
-    DrawRectangleRounded({(float)px, 110, 500, 350}, 0.1f, 8, CLITERAL(Color){22,27,34,255});
-    DrawRectangleRoundedLines({(float)px, 110, 500, 350}, 0.1f, 8, CLITERAL(Color){48,54,61,255});
+    int card_w = 520;
+    int card_h = 600;
+    int px = (cw - card_w) / 2;
+    DrawRectangleRounded({(float)(px + 3), (float)(80 + 3), (float)card_w, (float)card_h}, 0.1f, 8, CLITERAL(Color){8,11,16,255});
+    DrawRectangleRounded({(float)px, 80, (float)card_w, (float)card_h}, 0.1f, 8, CLITERAL(Color){22,27,34,255});
+    DrawRectangleRoundedLines({(float)px, 80, (float)card_w, (float)card_h}, 0.1f, 8, CLITERAL(Color){48,54,61,255});
 
-    int lx = px + 30;
-    int fx = px + 220;
+    int col1_x = px + 20;
+    int col2_x = px + card_w / 2 + 10;
+    int field_w = 170;
+    int label_w = 130;
+    int row_h = 32;
+    int start_y = 100;
 
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 14);
+    struct Field {
+        const char* label;
+        char* buf;
+        unsigned buf_size;
+        bool* editing;
+        void* val_ptr;
+        int type; // 0=int, 1=double
+        double min_d;
+        double max_d;
+        int min_i;
+        int max_i;
+    };
 
-    auto edit_field = [&](const char* label, int y, char* buf, unsigned buf_size, bool& editing, int& val, int min_v, int max_v) {
-        DrawText(label, lx, y + 6, 14, CLITERAL(Color){201,209,217,255});
-        Rectangle r = {(float)fx, (float)y, 120, 30};
-        if (GuiTextBox(r, buf, buf_size - 1, editing))
-            editing = !editing;
-        if (!editing) {
-            try { val = std::max(min_v, std::min(max_v, std::stoi(buf))); }
-            catch (...) {}
+    auto draw_field = [&](const Field& f, int x, int y) {
+        Color c = *f.editing ? CLITERAL(Color){88,166,255,255} : CLITERAL(Color){201,209,217,255};
+        DrawText(f.label, x, y + 7, 13, c);
+        Rectangle r = {(float)(x + label_w), (float)y, (float)field_w, 28};
+        if (GuiTextBox(r, f.buf, f.buf_size - 1, *f.editing))
+            *f.editing = !*f.editing;
+        if (!*f.editing) {
+            try {
+                if (f.type == 0) {
+                    int* ip = static_cast<int*>(f.val_ptr);
+                    int nv = std::max(f.min_i, std::min(f.max_i, std::stoi(f.buf)));
+                    if (nv != *ip) {
+                        *ip = nv;
+                        snprintf(f.buf, f.buf_size, "%d", nv);
+                    }
+                } else {
+                    double* dp = static_cast<double*>(f.val_ptr);
+                    double nv = std::max(f.min_d, std::min(f.max_d, std::stod(f.buf)));
+                    if (std::abs(nv - *dp) > 1e-9) {
+                        *dp = nv;
+                        snprintf(f.buf, f.buf_size, "%.4f", nv);
+                    }
+                }
+            } catch (...) {
+                if (f.type == 0)
+                    snprintf(f.buf, f.buf_size, "%d", *static_cast<int*>(f.val_ptr));
+                else
+                    snprintf(f.buf, f.buf_size, "%.4f", *static_cast<double*>(f.val_ptr));
+            }
         }
     };
 
-    snprintf(grid_buf_, sizeof(grid_buf_), "%d", cfg.grid_size);
-    edit_field("Grid Size:",        125, grid_buf_,     sizeof(grid_buf_),     editing_grid_,       cfg.grid_size,        5,  30);
-    edit_field("Agents:",           180, agents_buf_,   sizeof(agents_buf_),   editing_agents_,     cfg.agent_count,      1,  50);
-    edit_field("Food Count:",       235, food_count_buf_, sizeof(food_count_buf_), editing_food_count_, cfg.food_count,   1, 200);
-    edit_field("Food Threshold:",   290, food_thresh_buf_, sizeof(food_thresh_buf_), editing_food_thresh_, cfg.food_reset_threshold, 1, 100);
+    Field fields[] = {
+        {"Grid Size:",        grid_buf_,     sizeof(grid_buf_),     &editing_grid_,       &cfg.grid_size,               0, 0,0, 5,30},
+        {"Agents:",           agents_buf_,   sizeof(agents_buf_),   &editing_agents_,     &cfg.agent_count,             0, 0,0, 1,50},
+        {"Food Count:",       food_count_buf_, sizeof(food_count_buf_), &editing_food_count_, &cfg.food_count,          0, 0,0, 1,500},
+        {"Food Energy:",      food_energy_buf_, sizeof(food_energy_buf_), &editing_food_energy_, &cfg.food_energy,       0, 0,0, 1,500},
+        {"Food Threshold:",   food_thresh_buf_, sizeof(food_thresh_buf_), &editing_food_thresh_, &cfg.food_reset_threshold, 0,0,0,1,200},
+        {"Max Energy:",       max_energy_buf_, sizeof(max_energy_buf_), &editing_max_energy_, &cfg.max_energy,           0, 0,0, 1,1000},
+        {"Energy Decay:",     energy_decay_buf_, sizeof(energy_decay_buf_), &editing_energy_decay_, &cfg.energy_decay,  0, 0,0, 0,100},
+        {"Learning Rate:",    lr_buf_,       sizeof(lr_buf_),       &editing_lr_,         &cfg.learning_rate,           1, 1e-6,1.0, 0,0},
+        {"Discount Factor:",  discount_buf_, sizeof(discount_buf_), &editing_discount_,   &cfg.discount_factor,         1, 0.0,1.0, 0,0},
+        {"Explore Init:",     explore_init_buf_, sizeof(explore_init_buf_), &editing_explore_init_, &cfg.initial_explore_rate, 1,0.0,1.0,0,0},
+        {"Explore Decay:",    explore_decay_buf_, sizeof(explore_decay_buf_), &editing_explore_decay_, &cfg.explore_decay, 1,0.9,1.0,0,0},
+        {"Explore Min:",      explore_min_buf_, sizeof(explore_min_buf_), &editing_explore_min_, &cfg.min_explore_rate,   1, 0.0,1.0, 0,0},
+        {"Buffer Size:",      buf_size_buf_, sizeof(buf_size_buf_), &editing_buf_size_,   &cfg.experience_buffer_size,  0, 0,0, 100,500000},
+        {"Batch Size:",       batch_size_buf_, sizeof(batch_size_buf_), &editing_batch_size_, &cfg.batch_size,            0, 0,0, 1,1024},
+        {"Target Freq:",      target_freq_buf_, sizeof(target_freq_buf_), &editing_target_freq_, &cfg.target_update_frequency, 0,0,0,1,10000},
+    };
+
+    for (size_t i = 0; i < sizeof(fields)/sizeof(fields[0]); ++i) {
+        int col_x = (i < 8) ? col1_x : col2_x;
+        int row = (i < 8) ? static_cast<int>(i) : static_cast<int>(i) - 8;
+        draw_field(fields[i], col_x, start_y + row * row_h);
+    }
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 16);
-    if (GuiButton({(float)(cw / 2 - 60), 500, 120, 40}, "Back"))
+    if (GuiButton({(float)(cw / 2 - 60), (float)(80 + card_h + 16), 120, 40}, "Back")) {
+        settings_inited_ = false;
         current_state_ = MenuState::HOME;
+    }
 
     EndDrawing();
 }
