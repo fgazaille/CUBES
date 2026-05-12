@@ -14,6 +14,7 @@ Environment::Environment(bool)
       episode_count_for_avg(0) {
 
     RuntimeConfig& cfg = RuntimeConfig::instance();
+    pool.reset(static_cast<std::size_t>(cfg.get_thread_count()));
     agents.resize(cfg.agent_count);
     respawn_counters.resize(cfg.agent_count, 0);
     spawn_food();
@@ -101,7 +102,7 @@ void Environment::reset() {
             }
         }
         AI new_agent = child_genome.empty() ? AI() : AI(child_genome);
-        new_agent.energy = MAX_ENERGY;
+        new_agent.energy = RuntimeConfig::instance().max_energy;
         do {
             new_agent.pos.x = 1 + (env_gen() % std::max(1, cfg.grid_size - 2));
             new_agent.pos.y = 1 + (env_gen() % std::max(1, cfg.grid_size - 2));
@@ -145,7 +146,7 @@ void Environment::run_learning_step() {
                     int food_value = local_food[k].energy_value;
                     reward += 5.0 + 0.1 * food_value;
                     agent.energy += food_value;
-                    if (agent.energy > MAX_ENERGY) agent.energy = MAX_ENERGY;
+                    if (agent.energy > RuntimeConfig::instance().max_energy) agent.energy = RuntimeConfig::instance().max_energy;
                     agent.total_food_eaten++;
                     total_food_eaten_this_episode++;
                     total_food_eaten_all_time++;
@@ -238,7 +239,7 @@ void Environment::run_learning_step() {
                 std::vector<double> child_genome = template_genome;
                 mutate_genome(child_genome, 0.02);
                 AI new_agent(child_genome);
-                new_agent.energy = MAX_ENERGY;
+                new_agent.energy = RuntimeConfig::instance().max_energy;
                 do {
                     new_agent.pos.x = 1 + (env_gen() % std::max(1, cfg.grid_size - 2));
                     new_agent.pos.y = 1 + (env_gen() % std::max(1, cfg.grid_size - 2));

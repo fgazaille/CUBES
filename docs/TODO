@@ -1,5 +1,5 @@
 - add multiple compute threads per training simulation
-- rename "Threads" to "Concurrent simulations"
-- fix S not saving: Save error: Could not save to file: ./build/brain.json
 - fix players sometimes  walking over food
-- fix players going off screen
+- fix overlapping settings
+- organize settings menu
+- add brain settings

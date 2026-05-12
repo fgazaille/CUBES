@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <string>
 #include <fstream>
+#include <thread>
 
 namespace Config {
 
@@ -40,7 +41,7 @@ constexpr int BATCH_SIZE = 64;
 // ============================================================================
 
 constexpr int INPUT_SIZE = 12;
-constexpr int HIDDEN_LAYER1_SIZE = 64;
+constexpr int HIDDEN_LAYER1_SIZE = 32;
 constexpr int HIDDEN_LAYER2_SIZE = 32;
 constexpr int OUTPUT_SIZE = 4;
 constexpr int TARGET_UPDATE_FREQUENCY = 1000;
@@ -49,7 +50,7 @@ constexpr int TARGET_UPDATE_FREQUENCY = 1000;
 // Time Warp Parameters
 // ============================================================================
 
-constexpr bool DEFAULT_TIME_WARP_MODE = false;
+constexpr bool DEFAULT_TIME_WARP_MODE = true;
 constexpr double DEFAULT_TIME_WARP_FACTOR = 1.0;
 
 // ============================================================================
@@ -88,7 +89,27 @@ struct RuntimeConfig {
     int food_count = FOOD_COUNT;
     int agent_count = AGENT_COUNT;
     int food_energy = FOOD_ENERGY;
-    int food_reset_threshold = 10;  ///< Respawn food when count drops below this
+    int food_reset_threshold = 10;
+    int max_energy = MAX_ENERGY;
+    int energy_decay = ENERGY_DECAY;
+
+    double learning_rate = LEARNING_RATE;
+    double discount_factor = DISCOUNT_FACTOR;
+    double initial_explore_rate = INITIAL_EXPLORE_RATE;
+    double explore_decay = EXPLORE_DECAY;
+    double min_explore_rate = MIN_EXPLORE_RATE;
+
+    int experience_buffer_size = static_cast<int>(EXPERIENCE_BUFFER_SIZE);
+    int batch_size = BATCH_SIZE;
+    int target_update_frequency = TARGET_UPDATE_FREQUENCY;
+
+    int max_threads = 0;  // 0 = auto (use all available cores)
+
+    int get_thread_count() const {
+        if (max_threads > 0) return max_threads;
+        int hc = static_cast<int>(std::thread::hardware_concurrency());
+        return hc > 0 ? hc : 1;
+    }
 
     static RuntimeConfig& instance() {
         static RuntimeConfig config;

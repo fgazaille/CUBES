@@ -44,8 +44,8 @@ AI::AI() : update_counter(0), gen(std::random_device{}()),
     }
     
     // Initial energy at maximum
-    energy = MAX_ENERGY;
-    explore_rate = INITIAL_EXPLORE_RATE;
+    energy = RuntimeConfig::instance().max_energy;
+    explore_rate = RuntimeConfig::instance().initial_explore_rate;
     total_food_eaten = 0;
     
     // Generate unique color for visualization
@@ -82,8 +82,8 @@ AI::AI(const std::vector<double>& genome)
     }
     
     // Initial energy at maximum
-    energy = MAX_ENERGY;
-    explore_rate = INITIAL_EXPLORE_RATE;
+    energy = RuntimeConfig::instance().max_energy;
+    explore_rate = RuntimeConfig::instance().initial_explore_rate;
     total_food_eaten = 0;
     
     // Generate unique color for visualization
@@ -273,7 +273,7 @@ std::vector<double> AI::get_state_representation(const std::vector<Food>& food_l
     state[1] = static_cast<double>(pos.y) / cfg.grid_size;
     
     // [2]: Normalized energy (CRUCIAL for learning energy management)
-    state[2] = static_cast<double>(energy) / MAX_ENERGY;
+    state[2] = static_cast<double>(energy) / RuntimeConfig::instance().max_energy;
     
     // [3-7]: Closest food information
     auto closest_food = find_closest_food(food_list);
@@ -375,7 +375,7 @@ std::optional<Position> AI::find_closest_food(const std::vector<Food>& food_list
 // ============================================================================
 
 void AI::respawn(int margin) {
-    energy = MAX_ENERGY;
+    energy = RuntimeConfig::instance().max_energy;
     int gs = RuntimeConfig::instance().grid_size;
     int playable = std::max(1, gs - 2 * margin);
     pos.x = margin + (gen() % playable);
@@ -393,7 +393,7 @@ void AI::move(int action) {
     }
     
     // Apply energy decay - allow energy to reach 0 for death
-    energy = energy - ENERGY_DECAY;
+    energy = energy - RuntimeConfig::instance().energy_decay;
     if (energy < 0) energy = 0;
 }
 
@@ -403,7 +403,7 @@ void AI::add_experience(const std::vector<double>& state, int action,
     experience_buffer.push_back({state, action, reward, next_state, done});
     
     // Maintain buffer size
-    if (experience_buffer.size() > EXPERIENCE_BUFFER_SIZE) {
+    if (experience_buffer.size() > static_cast<size_t>(RuntimeConfig::instance().experience_buffer_size)) {
         experience_buffer.pop_front();
     }
 }
@@ -414,13 +414,13 @@ void AI::learn_from_experience() {
     if (train_step_counter < 4) return;
     train_step_counter = 0;
     
-    if (experience_buffer.size() < BATCH_SIZE) return;
+    if (experience_buffer.size() < static_cast<size_t>(RuntimeConfig::instance().batch_size)) return;
     
-    double lr = LEARNING_RATE;
+    double lr = RuntimeConfig::instance().learning_rate;
     
     // Sample mini-batch
     std::vector<int> batch_indices;
-    for (int i = 0; i < BATCH_SIZE; ++i) {
+    for (int i = 0; i < RuntimeConfig::instance().batch_size; ++i) {
         batch_indices.push_back(gen() % experience_buffer.size());
     }
     
@@ -449,7 +449,7 @@ void AI::learn_from_experience() {
             std::vector<double> next_q_target = target_network->forward(exp.next_state);
             double target_q = next_q_target[best_next_action];
             
-            current_q_values[exp.action] = exp.reward + DISCOUNT_FACTOR * target_q;
+            current_q_values[exp.action] = exp.reward + RuntimeConfig::instance().discount_factor * target_q;
         }
         
         neural_network->train(exp.state, current_q_values, lr);
@@ -457,7 +457,7 @@ void AI::learn_from_experience() {
     
     // Periodically update target network
     update_counter++;
-    if (update_counter >= TARGET_UPDATE_FREQUENCY) {
+    if (update_counter >= RuntimeConfig::instance().target_update_frequency) {
         target_network->copy_weights_from(*neural_network);
         update_counter = 0;
     }
@@ -472,7 +472,7 @@ bool AI::is_alive() const {
 }
 
 void AI::decay_exploration() { 
-    explore_rate = std::max(MIN_EXPLORE_RATE, explore_rate * EXPLORE_DECAY); 
+    explore_rate = std::max(RuntimeConfig::instance().min_explore_rate, explore_rate * RuntimeConfig::instance().explore_decay); 
 }
 
 double AI::get_explore_rate() const { 
@@ -480,7 +480,7 @@ double AI::get_explore_rate() const {
 }
 
 float AI::get_energy_percentage() const { 
-    return static_cast<float>(energy) / MAX_ENERGY; 
+    return static_cast<float>(energy) / RuntimeConfig::instance().max_energy; 
 }
 
 void AI::mutate(double mutation_rate) { 

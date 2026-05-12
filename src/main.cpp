@@ -217,6 +217,8 @@ static void run_training(const TrainingConfig& config, TrainingStatus* status) {
     }
 
     status->thread = std::thread([status, num_envs, eps_per_env]() {
+        status->env_pool.reset(
+            static_cast<std::size_t>(RuntimeConfig::instance().get_thread_count()));
         std::atomic<int> global_done{0};
 
         for (int i = 0; i < num_envs; ++i) {

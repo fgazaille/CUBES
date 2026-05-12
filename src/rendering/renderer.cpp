@@ -441,7 +441,7 @@ void render_debug_overlay(const AI& agent,
     };
 
     std::stringstream ps; ps << "Pos: (" << agent.pos.x << ", " << agent.pos.y << ")"; line(ps.str());
-    std::stringstream es; es << "Energy: " << agent.energy << "/" << MAX_ENERGY; line(es.str());
+    std::stringstream es; es << "Energy: " << agent.energy << "/" << RuntimeConfig::instance().max_energy; line(es.str());
     std::stringstream eps; eps << "Epsilon: " << std::fixed << std::setprecision(3) << agent.get_explore_rate(); line(eps.str());
 
     cy += 4;
