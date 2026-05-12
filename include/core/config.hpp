@@ -53,22 +53,11 @@ constexpr bool DEFAULT_TIME_WARP_MODE = false;
 constexpr double DEFAULT_TIME_WARP_FACTOR = 1.0;
 
 // ============================================================================
-// Display Parameters (dynamic — updated on window resize)
+// Utility Functions
 // ============================================================================
 
 inline int SCREEN_WIDTH = 1600;
 inline int SCREEN_HEIGHT = 900;
-inline int SIDEBAR_WIDTH = SCREEN_WIDTH / 4;
-inline int GRID_WIDTH = SCREEN_WIDTH - SIDEBAR_WIDTH;
-inline int GRID_HEIGHT = SCREEN_HEIGHT;
-inline int CELL_SIZE = (GRID_WIDTH < GRID_HEIGHT ? GRID_WIDTH : GRID_HEIGHT) / GRID_SIZE;
-
-inline void recalculate_layout() {
-    SIDEBAR_WIDTH = SCREEN_WIDTH / 4;
-    GRID_WIDTH = SCREEN_WIDTH - SIDEBAR_WIDTH;
-    GRID_HEIGHT = SCREEN_HEIGHT;
-    CELL_SIZE = std::max(1, std::min(GRID_WIDTH, GRID_HEIGHT) / GRID_SIZE);
-}
 
 inline std::string asset_prefix() {
     for (const char* p : {"assets/", "../assets/", "./"}) {

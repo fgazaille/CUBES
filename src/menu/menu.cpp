@@ -71,11 +71,11 @@ void Menu::do_home() {
     BeginDrawing();
     ClearBackground(CLITERAL(Color){13,17,23,255});
 
-    int cw = GetScreenWidth();
-    int ch = GetScreenHeight();
+    int sw = GetScreenWidth();
+    int sh = GetScreenHeight();
     float t = GetTime();
 
-    for (int y = 0; y < ch; y += 6) {
+    for (int y = 0; y < sh; y += 6) {
         float pulse = 0.85f + 0.15f * std::sin(t * 0.5f + y * 0.02f);
         Color row = {
             (unsigned char)(13 * pulse),
@@ -83,25 +83,25 @@ void Menu::do_home() {
             (unsigned char)(23 * pulse),
             255
         };
-        DrawRectangle(0, y, cw, 6, row);
+        DrawRectangle(0, y, sw, 6, row);
     }
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 48);
     int tw = MeasureText("CUBES", 48);
     for (int i = 3; i >= 0; --i) {
         Color glow = {88, 166, 255, (unsigned char)(20 - i * 5)};
-        DrawText("CUBES", (cw - tw) / 2 - i, 50 - i, 48, glow);
-        DrawText("CUBES", (cw - tw) / 2 + i, 50 + i, 48, glow);
+        DrawText("CUBES", (sw - tw) / 2 - i, 50 - i, 48, glow);
+        DrawText("CUBES", (sw - tw) / 2 + i, 50 + i, 48, glow);
     }
-    DrawText("CUBES", (cw - tw) / 2, 50, 48, CLITERAL(Color){88,166,255,255});
+    DrawText("CUBES", (sw - tw) / 2, 50, 48, CLITERAL(Color){88,166,255,255});
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 18);
-    int sw = MeasureText("AI Learning Simulation", 18);
-    DrawText("AI Learning Simulation", (cw - sw) / 2, 110, 18, CLITERAL(Color){139,148,158,255});
+    tw = MeasureText("AI Learning Simulation", 18);
+    DrawText("AI Learning Simulation", (sw - tw) / 2, 110, 18, CLITERAL(Color){139,148,158,255});
     int ul_w = sw + 40;
-    DrawRectangle((cw - ul_w) / 2, 135, ul_w, 1, CLITERAL(Color){48,54,61,255});
+    DrawRectangle((sw - ul_w) / 2, 135, ul_w, 1, CLITERAL(Color){48,54,61,255});
 
-    int card_x = (cw - 240) / 2;
+    int card_x = (sw - 240) / 2;
     int card_y = 170;
     int card_w = 240;
     int card_h = 270;
@@ -118,7 +118,7 @@ void Menu::do_home() {
         {"Exit",             MenuState::EXIT}
     };
 
-    int bx = (cw - 200) / 2;
+    int bx = (sw - 200) / 2;
     int by = card_y + 20;
     for (auto& b : btns) {
         if (GuiButton({(float)bx, (float)by, 200, 40}, b.label))
@@ -134,8 +134,8 @@ void Menu::do_home() {
     Color msg_col = brain_exists
         ? CLITERAL(Color){63,185,80,255}
         : CLITERAL(Color){248,81,73,255};
-    int mx = MeasureText(msg, 13);
-    DrawText(msg, (cw - mx) / 2, ch - 40, 13, msg_col);
+    tw = MeasureText(msg, 13);
+    DrawText(msg, (sw - tw) / 2, sh - 40, 13, msg_col);
 
     EndDrawing();
 }
@@ -146,18 +146,18 @@ void Menu::do_training_config() {
     BeginDrawing();
     ClearBackground(CLITERAL(Color){13,17,23,255});
 
-    int cw = GetScreenWidth();
+    int sw = GetScreenWidth();
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 36);
     int tw = MeasureText("Training", 36);
-    DrawText("Training", (cw - tw) / 2, 25, 36, CLITERAL(Color){88,166,255,255});
+    DrawText("Training", (sw - tw) / 2, 25, 36, CLITERAL(Color){88,166,255,255});
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 14);
-    int sw = MeasureText("Run N parallel simulations for faster exploration.", 14);
+    tw = MeasureText("Run N parallel simulations for faster exploration.", 14);
     DrawText("Run N parallel simulations for faster exploration.",
-             (cw - sw) / 2, 75, 14, CLITERAL(Color){139,148,158,255});
+             (sw - tw) / 2, 75, 14, CLITERAL(Color){139,148,158,255});
 
-    int px = (cw - 500) / 2;
+    int px = (sw - 500) / 2;
     DrawRectangleRounded({(float)(px + 3), (float)(110 + 3), 500, 280}, 0.1f, 8, CLITERAL(Color){8,11,16,255});
     DrawRectangleRounded({(float)px, 110, 500, 280}, 0.1f, 8, CLITERAL(Color){22,27,34,255});
     DrawRectangleRoundedLines({(float)px, 110, 500, 280}, 0.1f, 8, CLITERAL(Color){48,54,61,255});
@@ -205,7 +205,7 @@ void Menu::do_training_config() {
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 16);
     int btn_w = 140, btn_h = 40, gap = 20;
-    int start_x = (cw - 2 * btn_w - gap) / 2;
+    int start_x = (sw - 2 * btn_w - gap) / 2;
     if (GuiButton({(float)start_x, 330, (float)btn_w, (float)btn_h}, "Start Training")) {
         if (training_status_ptr_) {
             std::lock_guard<std::mutex> hlock(training_status_ptr_->history_mutex);
@@ -222,7 +222,7 @@ void Menu::do_training_config() {
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 13);
     const char* tip = "ESC to go back";
-    int tix = (cw - MeasureText(tip, 13)) / 2;
+    int tix = (sw - MeasureText(tip, 13)) / 2;
     DrawText(tip, tix, 410, 13, CLITERAL(Color){100,108,118,255});
 
     EndDrawing();
@@ -234,7 +234,7 @@ void Menu::do_training_active() {
     BeginDrawing();
     ClearBackground(CLITERAL(Color){13,17,23,255});
 
-    int cw = GetScreenWidth();
+    int sw = GetScreenWidth();
     int done = 0, total = 0, best = 0, par = 1;
     if (training_status_ptr_ && training_status_ptr_->active.load()) {
         done  = training_status_ptr_->episodes_done.load();
@@ -247,15 +247,15 @@ void Menu::do_training_active() {
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 36);
     int tw = MeasureText("Training", 36);
-    DrawText("Training", (cw - tw) / 2, 15, 36, CLITERAL(Color){88,166,255,255});
+    DrawText("Training", (sw - tw) / 2, 15, 36, CLITERAL(Color){88,166,255,255});
 
     std::string best_str = "Best food: " + std::to_string(best) + "  (" + std::to_string(par) + " parallel)";
     GuiSetStyle(DEFAULT, TEXT_SIZE, 18);
-    int bw = MeasureText(best_str.c_str(), 18);
-    DrawText(best_str.c_str(), (cw - bw) / 2, 60, 18, CLITERAL(Color){63,185,80,255});
+    tw = MeasureText(best_str.c_str(), 18);
+    DrawText(best_str.c_str(), (sw - tw) / 2, 60, 18, CLITERAL(Color){63,185,80,255});
 
     // Progress bar
-    Rectangle bar = {(float)(cw / 2 - 250), 100, 500, 28};
+    Rectangle bar = {(float)(sw / 2 - 250), 100, 500, 28};
     DrawRectangleRounded(bar, 0.14f, 8, CLITERAL(Color){30,36,44,255});
     if (prog > 0) {
         Rectangle fill = {bar.x + 1, bar.y + 1, (bar.width - 2) * prog, bar.height - 2};
@@ -266,12 +266,12 @@ void Menu::do_training_active() {
     GuiSetStyle(DEFAULT, TEXT_SIZE, 14);
     std::string pct_str = std::to_string(done) + " / " + std::to_string(total) + " episodes  (" + std::to_string((int)(prog * 100)) + "%)";
     int pctw = MeasureText(pct_str.c_str(), 14);
-    DrawText(pct_str.c_str(), (cw - pctw) / 2, 140, 14, CLITERAL(Color){201,209,217,255});
+    DrawText(pct_str.c_str(), (sw - pctw) / 2, 140, 14, CLITERAL(Color){201,209,217,255});
 
     // ── Food history graph ────────────────────────────────────────────────
     int graph_x = 60;
     int graph_y = 190;
-    int graph_w = cw - 120;
+    int graph_w = sw - 120;
     int graph_h = 160;
 
     DrawRectangleRounded({(float)(graph_x + 3), (float)(graph_y + 3), (float)graph_w, (float)graph_h}, 0.1f, 8, CLITERAL(Color){8,11,16,255});
@@ -313,8 +313,13 @@ void Menu::do_training_active() {
         // ── Left Y-axis: Best Ever ────────────────────────────────────────
         for (int i = 0; i <= 4; ++i) {
             int ly = plot_y + plot_h - (plot_h * i / 4);
-            DrawLine(plot_x, ly, plot_x + plot_w, ly, CLITERAL(Color){40,46,54,255});
-            std::string lbl = std::to_string(max_best * i / 4);
+            DrawLine(plot_x, ly, plot_x + plot_w, ly, CLITERAL(Color){60,70,85,255});
+            int val = max_best * i / 4;
+            std::string lbl;
+            if (max_best * i % 4 == 0)
+                lbl = std::to_string(val);
+            else
+                lbl = std::to_string(max_best * i / 4.0).substr(0, 4);
             DrawText(lbl.c_str(), graph_x + 2, ly - 7, 9, CLITERAL(Color){100,108,118,255});
         }
         DrawText("Best Ever", graph_x + 2, plot_y, 9, best_col);
@@ -323,7 +328,12 @@ void Menu::do_training_active() {
         int rx = plot_x + plot_w + 4;
         for (int i = 0; i <= 4; ++i) {
             int ly = plot_y + plot_h - (plot_h * i / 4);
-            std::string lbl = std::to_string(max_rate * i / 4);
+            int val = max_rate * i / 4;
+            std::string lbl;
+            if (max_rate * i % 4 == 0)
+                lbl = std::to_string(val);
+            else
+                lbl = std::to_string(max_rate * i / 4.0).substr(0, 4);
             DrawText(lbl.c_str(), rx, ly - 7, 9, CLITERAL(Color){100,108,118,255});
         }
         DrawText("Rate", rx, plot_y, 9, rate_col);
@@ -407,13 +417,13 @@ void Menu::do_training_active() {
 
     // STOP button
     GuiSetStyle(DEFAULT, TEXT_SIZE, 20);
-    if (GuiButton({(float)(cw / 2 - 60), (float)(graph_y + graph_h + 20), 120, 45}, "STOP")) {
+    if (GuiButton({(float)(sw / 2 - 60), (float)(graph_y + graph_h + 20), 120, 45}, "STOP")) {
         g_training_stop_flag.store(true);
     }
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 13);
     int tipw = MeasureText("ESC to cancel training", 13);
-    DrawText("ESC to cancel training", (cw - tipw) / 2, graph_y + graph_h + 80, 13, CLITERAL(Color){100,108,118,255});
+    DrawText("ESC to cancel training", (sw - tipw) / 2, graph_y + graph_h + 80, 13, CLITERAL(Color){100,108,118,255});
 
     if (training_status_ptr_ && !training_status_ptr_->active.load()) {
         {
@@ -432,19 +442,19 @@ void Menu::do_settings() {
     BeginDrawing();
     ClearBackground(CLITERAL(Color){13,17,23,255});
 
-    int cw = GetScreenWidth();
+    int sw = GetScreenWidth();
     RuntimeConfig& cfg = RuntimeConfig::instance();
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 36);
     int tw = MeasureText("Settings", 36);
-    DrawText("Settings", (cw - tw) / 2, 25, 36, CLITERAL(Color){88,166,255,255});
+    DrawText("Settings", (sw - tw) / 2, 25, 36, CLITERAL(Color){88,166,255,255});
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 14);
-    int sw = MeasureText("Adjust simulation parameters.", 14);
+    tw = MeasureText("Adjust simulation parameters.", 14);
     DrawText("Adjust simulation parameters.",
-             (cw - sw) / 2, 75, 14, CLITERAL(Color){139,148,158,255});
+             (sw - tw) / 2, 75, 14, CLITERAL(Color){139,148,158,255});
 
-    int px = (cw - 500) / 2;
+    int px = (sw - 500) / 2;
     DrawRectangleRounded({(float)(px + 3), (float)(110 + 3), 500, 350}, 0.1f, 8, CLITERAL(Color){8,11,16,255});
     DrawRectangleRounded({(float)px, 110, 500, 350}, 0.1f, 8, CLITERAL(Color){22,27,34,255});
     DrawRectangleRoundedLines({(float)px, 110, 500, 350}, 0.1f, 8, CLITERAL(Color){48,54,61,255});
@@ -472,7 +482,7 @@ void Menu::do_settings() {
     edit_field("Food Threshold:",   290, food_thresh_buf_, sizeof(food_thresh_buf_), editing_food_thresh_, cfg.food_reset_threshold, 1, 100);
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 16);
-    if (GuiButton({(float)(cw / 2 - 60), 500, 120, 40}, "Back"))
+    if (GuiButton({(float)(px + 190), 420, 120, 32}, "Back"))
         current_state_ = MenuState::HOME;
 
     EndDrawing();
@@ -484,16 +494,16 @@ void Menu::do_about() {
     BeginDrawing();
     ClearBackground(CLITERAL(Color){13,17,23,255});
 
-    int cw = GetScreenWidth();
+    int sw = GetScreenWidth();
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 36);
     int tw = MeasureText("About CUBES", 36);
-    DrawText("About CUBES", (cw - tw) / 2, 40, 36, CLITERAL(Color){88,166,255,255});
+    DrawText("About CUBES", (sw - tw) / 2, 40, 36, CLITERAL(Color){88,166,255,255});
 
     auto blurb = [&](const char* text, int y, int size) {
         GuiSetStyle(DEFAULT, TEXT_SIZE, size);
-        int w = MeasureText(text, size);
-        DrawText(text, (cw - w) / 2, y, size, CLITERAL(Color){139,148,158,255});
+        tw = MeasureText(text, size);
+        DrawText(text, (sw - tw) / 2, y, size, CLITERAL(Color){139,148,158,255});
     };
 
     blurb("CUBES - AI Learning Simulation",                110, 18);
@@ -508,7 +518,7 @@ void Menu::do_about() {
     blurb("D - Debug  |  S - Save Brain  |  L - Load Brain", 375, 14);
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 16);
-    if (GuiButton({(float)(cw / 2 - 60), 500, 120, 40}, "Back"))
+    if (GuiButton({(float)(sw / 2 - 60), 500, 120, 40}, "Back"))
         current_state_ = MenuState::HOME;
 
     EndDrawing();
