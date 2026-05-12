@@ -564,7 +564,7 @@ void Menu::do_settings() {
     DrawText(tip, tip_x, tip_y + 8, 11, CLITERAL(Color){100,108,118,255});
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 16);
-    if (GuiButton({(float)(cw / 2 - 60), 500, 120, 40}, "Back"))
+    if (GuiButton({(float)(px + 190), 420, 120, 32}, "Back"))
         current_state_ = MenuState::HOME;
     }
 
