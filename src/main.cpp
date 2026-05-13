@@ -17,10 +17,6 @@ std::atomic<bool> g_training_stop_flag(false);
 
 static void run_simulation() {
 
-    SCREEN_WIDTH  = GetScreenWidth();
-    SCREEN_HEIGHT = GetScreenHeight();
-    recalculate_layout();
-
     SetWindowTitle("CUBES - AI Learning Simulation");
     init_renderer(asset_prefix());
 
@@ -55,12 +51,6 @@ static void run_simulation() {
     SetTargetFPS(120);
 
     while (!WindowShouldClose()) {
-        if (IsWindowResized()) {
-            SCREEN_WIDTH  = GetScreenWidth();
-            SCREEN_HEIGHT = GetScreenHeight();
-            recalculate_layout();
-        }
-
         if (IsKeyPressed(KEY_ESCAPE)) break;
         if (IsKeyPressed(KEY_R))      env.reset();
 
@@ -84,9 +74,12 @@ static void run_simulation() {
 
         if (debug_mode && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
             Vector2 mp = GetMousePosition();
-            if (mp.x < GRID_WIDTH && mp.y < GRID_HEIGHT) {
-                int cx = (int)mp.x / CELL_SIZE;
-                int cy = (int)mp.y / CELL_SIZE;
+            int gs = RuntimeConfig::instance().grid_size;
+            int cs = std::max(1, std::min(GetScreenWidth(), GetScreenHeight()) / gs);
+            int gpw = cs * gs;
+            if (mp.x < gpw && mp.y < gpw) {
+                int cx = (int)mp.x / cs;
+                int cy = (int)mp.y / cs;
                 selected_agent = -1;
                 for (size_t i = 0; i < env.get_agents().size(); ++i) {
                     if (env.get_agents()[i].is_alive() &&
@@ -141,9 +134,11 @@ static void run_simulation() {
                            debug_mode, selected_agent);
 
         if (!message_text.empty() && GetTime() < message_timer) {
+            int gs = RuntimeConfig::instance().grid_size;
+            int gpw = std::max(1, std::min(GetScreenWidth(), GetScreenHeight()) / gs) * gs;
             int mw = MeasureText(message_text.c_str(), 24);
             DrawText(message_text.c_str(),
-                     (GRID_WIDTH - mw) / 2, SCREEN_HEIGHT / 2,
+                     (gpw - mw) / 2, GetScreenHeight() / 2,
                      24, UI::COL_GREEN);
         }
 

@@ -7,14 +7,12 @@
 #include <climits>
 
 namespace {
-    Texture2D agent_tex{};
-    Texture2D food_tex{};
     Font game_font{};
     bool resources_loaded = false;
 
     constexpr int MAX_HISTORY = 500;
     struct FoodPoint { int episode; int food; };
-    std::vector<FoodPoint> agent_history[16];
+    std::vector<std::vector<FoodPoint>> agent_history;
     int last_agent_count = -1;
 
     void clear_food_history() {
@@ -22,37 +20,22 @@ namespace {
         last_agent_count = -1;
     }
 
-    void draw_rounded_rect(int x, int y, int w, int h, int /*radius*/, Color color) {
-        DrawRectangleRounded({(float)x, (float)y, (float)w, (float)h}, 0.15f, 8, color);
+    void draw_rounded_rect(int x, int y, int w, int h, int radius, Color color) {
+        float r = std::max(0.001f, std::min(1.0f, radius / (float)std::min(w, h) * 2.0f));
+        DrawRectangleRounded({(float)x, (float)y, (float)w, (float)h}, r, 8, color);
     }
 }
 
 void init_renderer(const std::string& asset_path) {
-    Image player_img = LoadImage((asset_path + "Player.png").c_str());
-    Image food_img   = LoadImage((asset_path + "Food.png").c_str());
-
-    if (player_img.data) ImageResize(&player_img, CELL_SIZE, CELL_SIZE);
-    if (food_img.data)   ImageResize(&food_img,   CELL_SIZE, CELL_SIZE);
-
-    agent_tex = LoadTextureFromImage(player_img);
-    food_tex  = LoadTextureFromImage(food_img);
-    if (player_img.data) UnloadImage(player_img);
-    if (food_img.data)   UnloadImage(food_img);
-
     game_font = LoadFontEx((asset_path + "Futura.ttf").c_str(), 32, nullptr, 0);
     if (game_font.texture.id == 0)
         game_font = GetFontDefault();
-
-    SetTextureFilter(agent_tex, TEXTURE_FILTER_BILINEAR);
-    SetTextureFilter(food_tex, TEXTURE_FILTER_BILINEAR);
 
     resources_loaded = true;
 }
 
 void close_renderer() {
     if (resources_loaded) {
-        if (agent_tex.id > 0) UnloadTexture(agent_tex);
-        if (food_tex.id > 0)  UnloadTexture(food_tex);
         if (game_font.texture.id > 0 &&
             game_font.texture.id != GetFontDefault().texture.id)
             UnloadFont(game_font);
@@ -81,8 +64,8 @@ static void render_agent_energy_bar(int x, int y, int w, int h, float pct) {
     DrawRectangle(x, y, (int)(w * pct), h, UI::ENERGY_BAR);
 }
 
-static void render_sidebar_header(int y, const std::string& text) {
-    draw_text(text, GRID_WIDTH + 15, y, 18, UI::ACCENT);
+static void render_sidebar_header(int x, int y, const std::string& text) {
+    draw_text(text, x + 15, y, 18, UI::ACCENT);
 }
 
 // ── Main render ──────────────────────────────────────────────────────────────
@@ -93,18 +76,22 @@ void render_environment(const Environment& env,
 
     ClearBackground(UI::BACKGROUND);
     RuntimeConfig& cfg = RuntimeConfig::instance();
-    int cell_size = std::min(SCREEN_WIDTH - SIDEBAR_WIDTH, SCREEN_HEIGHT) / cfg.grid_size;
+    int sw = GetScreenWidth();
+    int sh = GetScreenHeight();
+    int min_sbw = 200;
+    int max_grid_w = std::max(1, sw - min_sbw);
+    int cell_size = std::max(1, std::min(max_grid_w, sh) / cfg.grid_size);
     int grid_pixel_width = cell_size * cfg.grid_size;
-
-    // ── Record food history ───────────────────────────────────────────────
+    int sbw = sw - grid_pixel_width;
     {
         const auto& agents = env.get_agents();
         int current_count = (int)agents.size();
         if (current_count != last_agent_count) {
             clear_food_history();
+            agent_history.resize(agents.size());
             last_agent_count = current_count;
         }
-        for (size_t i = 0; i < agents.size() && i < 16; ++i) {
+        for (size_t i = 0; i < agents.size(); ++i) {
             int food = agents[i].total_food_eaten;
             auto& hist = agent_history[i];
             int idx = hist.empty() ? 0 : hist.back().episode + 1;
@@ -145,12 +132,12 @@ void render_environment(const Environment& env,
         int pad = (cell_size - side) / 2;
         Color fc = UI::FOOD_COLOUR;
         fc.a = (unsigned char)(180 + 75 * pulse);
-        DrawRectangle(fx + pad, fy + pad, side, side, fc);
         if (side > 4) {
             Color glow = UI::FOOD_COLOUR;
             glow.a = 30;
             DrawRectangle(fx + pad - 1, fy + pad - 1, side + 2, side + 2, glow);
         }
+        DrawRectangle(fx + pad, fy + pad, side, side, fc);
     }
 
     // ── Agents ──────────────────────────────────────────────────────────────
@@ -165,9 +152,10 @@ void render_environment(const Environment& env,
         DrawRectangle(ax + pad, ay + pad, side, side, agent.color);
         DrawRectangleLines(ax + pad, ay + pad, side, side, Fade(agent.color, 0.3f));
 
-        int bar_w = cell_size - 4;
-        int bar_h = std::max(3, cell_size / 8);
-        render_agent_energy_bar(ax + 2, ay + cell_size - bar_h - 2, bar_w, bar_h,
+        int bar_w = std::max(1, cell_size - 4);
+        int bar_h = std::max(2, std::min(cell_size / 4, cell_size / 8));
+        int bar_y = ay + std::max(0, cell_size - bar_h - 2);
+        render_agent_energy_bar(ax + 2, bar_y, bar_w, bar_h,
                                 agent.get_energy_percentage());
     }
 
@@ -181,18 +169,14 @@ void render_environment(const Environment& env,
     }
 
     // ── Sidebar ─────────────────────────────────────────────────────────────
-    DrawRectangle(grid_pixel_width, 0, SIDEBAR_WIDTH, SCREEN_HEIGHT, UI::SIDEBAR_BG);
-    if (grid_pixel_width + SIDEBAR_WIDTH < SCREEN_WIDTH)
-        DrawRectangle(grid_pixel_width + SIDEBAR_WIDTH, 0,
-                      SCREEN_WIDTH - grid_pixel_width - SIDEBAR_WIDTH, SCREEN_HEIGHT,
-                      UI::SIDEBAR_BG);
+    DrawRectangle(grid_pixel_width, 0, sbw, sh, UI::SIDEBAR_BG);
 
-    DrawRectangle(grid_pixel_width, 0, SIDEBAR_WIDTH, 50, UI::SIDEBAR_HDR);
+    DrawRectangle(grid_pixel_width, 0, sbw, 50, UI::SIDEBAR_HDR);
     draw_text("AI Simulation Stats", grid_pixel_width + 15, 14, 18, UI::ACCENT);
 
     auto stat_line = [&](int y, const std::string& label, const std::string& value) {
         draw_text(label, grid_pixel_width + 15, y, 14, UI::TEXT_DIM);
-        draw_text(value, grid_pixel_width + SIDEBAR_WIDTH - 15 - MeasureTextEx(game_font, value.c_str(), 14, 1).x, y, 14, UI::TEXT);
+        draw_text(value, grid_pixel_width + sbw - 15 - MeasureTextEx(game_font, value.c_str(), 14, 1).x, y, 14, UI::TEXT);
     };
 
     int sy = 65;
@@ -231,12 +215,12 @@ void render_environment(const Environment& env,
 
     // ── Learning Progress graph ───────────────────────────────────────────
     sy += 8;
-    render_sidebar_header(sy, "Learning Progress");
+    render_sidebar_header(grid_pixel_width, sy, "Learning Progress");
     sy += 22;
 
     int graph_x = grid_pixel_width + 10;
     int graph_y = sy;
-    int graph_w = SIDEBAR_WIDTH - 20;
+    int graph_w = sbw - 20;
     int graph_h = 130;
 
     draw_rounded_rect(graph_x, graph_y, graph_w, graph_h, 4, UI::SIDEBAR_HDR);
@@ -286,8 +270,13 @@ void render_environment(const Environment& env,
         // Grid lines (horizontal)
         for (int i = 0; i <= 4; ++i) {
             int ly = plot_y + plot_h - (plot_h * i / 4);
-            DrawLine(plot_x, ly, plot_x + plot_w, ly, CLITERAL(Color){40,46,54,255});
-            std::stringstream sl; sl << max_food * i / 4;
+            DrawLine(plot_x, ly, plot_x + plot_w, ly, CLITERAL(Color){60,70,85,255});
+            int label_val = max_food * i / 4;
+            std::stringstream sl;
+            if (max_food * i % 4 == 0)
+                sl << label_val;
+            else
+                sl << std::fixed << std::setprecision(1) << (max_food * i / 4.0);
             draw_text(sl.str(), graph_x + 2, ly - 7, 9, UI::TEXT_DIM);
         }
 
@@ -338,7 +327,7 @@ void render_environment(const Environment& env,
 
         // Lines for each agent
         char agent_id = 'A';
-        for (size_t ai = 0; ai < env.get_agents().size() && ai < 16; ++ai, ++agent_id) {
+        for (size_t ai = 0; ai < env.get_agents().size() && ai < agent_history.size(); ++ai, ++agent_id) {
             const auto& hist = agent_history[ai];
             if (hist.size() < 2) continue;
 
@@ -363,7 +352,7 @@ void render_environment(const Environment& env,
         draw_text(" Best", lx + 10, ly - 2, 10, UI::TEXT);
         lx += (int)MeasureTextEx(game_font, " Best", 10, 1).x + 16;
         agent_id = 'A';
-        for (size_t ai = 0; ai < env.get_agents().size() && ai < 16; ++ai, ++agent_id) {
+        for (size_t ai = 0; ai < env.get_agents().size() && ai < agent_history.size(); ++ai, ++agent_id) {
             if (agent_history[ai].empty()) continue;
             Color col = env.get_agents()[ai].color;
             std::string label = " "; label += agent_id;
@@ -377,14 +366,14 @@ void render_environment(const Environment& env,
     sy += graph_h + 10;
 
     // ── Agent Statistics section ───────────────────────────────────────────
-    render_sidebar_header(sy, "Agent Statistics");
+    render_sidebar_header(grid_pixel_width, sy, "Agent Statistics");
     sy += 25;
     char agent_id = 'A';
     for (size_t i = 0; i < env.get_agents().size(); ++i, ++agent_id) {
         const AI& agent = env.get_agents()[i];
 
         int card_h = 70;
-        draw_rounded_rect(grid_pixel_width + 8, sy, SIDEBAR_WIDTH - 16, card_h, 6, UI::SIDEBAR_HDR);
+        draw_rounded_rect(grid_pixel_width + 8, sy, sbw - 16, card_h, 6, UI::SIDEBAR_HDR);
 
         Color name_col = agent.color;
         if (!agent.is_alive()) name_col = Fade(name_col, 0.4f);
@@ -393,23 +382,24 @@ void render_environment(const Environment& env,
 
         std::string status = agent.is_alive() ? "Active" : "Inactive";
         Color status_col = agent.is_alive() ? UI::COL_GREEN : UI::COL_RED;
-        int sw = (int)MeasureTextEx(game_font, status.c_str(), 12, 1).x;
-        draw_text(status, grid_pixel_width + SIDEBAR_WIDTH - 20 - sw, sy + 6, 12, status_col);
+        int sw_txt = (int)MeasureTextEx(game_font, status.c_str(), 12, 1).x;
+        draw_text(status, grid_pixel_width + sbw - 20 - sw_txt, sy + 6, 12, status_col);
 
         std::stringstream fs; fs << "Food: " << agent.total_food_eaten;
         draw_text(fs.str(), grid_pixel_width + 18, sy + 28, 13, UI::TEXT);
 
         draw_text("Energy", grid_pixel_width + 18, sy + 48, 12, UI::TEXT_DIM);
         render_agent_energy_bar(grid_pixel_width + 80, sy + 49,
-                                SIDEBAR_WIDTH - 100, 12,
+                                sbw - 100, 12,
                                 agent.get_energy_percentage());
 
         sy += card_h + 6;
     }
 
     // ── Controls section ──────────────────────────────────────────────────
+    sy = std::min(sy, sh - 220);
     sy += 10;
-    render_sidebar_header(sy, "Controls");
+    render_sidebar_header(grid_pixel_width, sy, "Controls");
     sy += 22;
 
     const char* controls[] = {
@@ -417,7 +407,7 @@ void render_environment(const Environment& env,
         "W  Warp", "+/-  Speed", "0  Reset Warp",
         "D  Debug", "S  Save Brain", "L  Load Brain"
     };
-    int col_w = SIDEBAR_WIDTH / 3;
+    int col_w = sbw / 3;
     for (int c = 0; c < 9; ++c) {
         int cx = grid_pixel_width + 10 + (c % 3) * col_w;
         int cy = sy + (c / 3) * 18;
