@@ -480,6 +480,7 @@ void Menu::do_settings() {
     DrawRectangleRounded({(float)px, 110, 500, 350}, 0.1f, 8, CLITERAL(Color){22,27,34,255});
     DrawRectangleRoundedLines({(float)px, 110, 500, 350}, 0.1f, 8, CLITERAL(Color){48,54,61,255});
 
+    int card_w = 240;
     int col1_x = px + 20;
     int col2_x = px + card_w / 2 + 10;
     int field_w = 170;
@@ -564,7 +565,7 @@ void Menu::do_settings() {
     DrawText(tip, tip_x, tip_y + 8, 11, CLITERAL(Color){100,108,118,255});
 
     GuiSetStyle(DEFAULT, TEXT_SIZE, 16);
-    if (GuiButton({(float)(px + 190), 420, 120, 32}, "Back"))
+    if (GuiButton({(float)(px + 190), 420, 120, 32}, "Back")){
         current_state_ = MenuState::HOME;
     }
 
