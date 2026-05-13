@@ -15,29 +15,42 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -Wextra")
 # Find Raylib
 # ============================================================================
 
-if(APPLE)
-    list(APPEND CMAKE_PREFIX_PATH /usr/local /opt/homebrew)
-endif()
-
-find_package(raylib QUIET)
-
-if(NOT raylib_FOUND)
-    # Manual fallback
+if(WIN32 OR CMAKE_CROSSCOMPILING)
+    include(FetchContent)
+    FetchContent_Declare(
+        raylib
+        GIT_REPOSITORY https://github.com/raysan5/raylib.git
+        GIT_TAG 6.0
+        GIT_SHALLOW ON
+    )
+    set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(BUILD_GAMES OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(raylib)
+    message(STATUS "Using raylib from FetchContent (cross-compile)")
+else()
     if(APPLE)
-        find_library(RAYLIB_LIB raylib PATHS /usr/local/lib /opt/homebrew/lib)
-        find_path(RAYLIB_INCLUDE raylib.h PATHS /usr/local/include /opt/homebrew/include)
-        if(RAYLIB_LIB AND RAYLIB_INCLUDE)
-            add_library(raylib UNKNOWN IMPORTED)
-            set_target_properties(raylib PROPERTIES
-                IMPORTED_LOCATION "${RAYLIB_LIB}"
-                INTERFACE_INCLUDE_DIRECTORIES "${RAYLIB_INCLUDE}"
-            )
-            message(STATUS "Found Raylib: ${RAYLIB_LIB}")
+        list(APPEND CMAKE_PREFIX_PATH /usr/local /opt/homebrew)
+    endif()
+
+    find_package(raylib QUIET)
+
+    if(NOT raylib_FOUND)
+        if(APPLE)
+            find_library(RAYLIB_LIB raylib PATHS /usr/local/lib /opt/homebrew/lib)
+            find_path(RAYLIB_INCLUDE raylib.h PATHS /usr/local/include /opt/homebrew/include)
+            if(RAYLIB_LIB AND RAYLIB_INCLUDE)
+                add_library(raylib UNKNOWN IMPORTED)
+                set_target_properties(raylib PROPERTIES
+                    IMPORTED_LOCATION "${RAYLIB_LIB}"
+                    INTERFACE_INCLUDE_DIRECTORIES "${RAYLIB_INCLUDE}"
+                )
+                message(STATUS "Found Raylib: ${RAYLIB_LIB}")
+            else()
+                message(FATAL_ERROR "Raylib not found. Install with: brew install raylib")
+            endif()
         else()
-            message(FATAL_ERROR "Raylib not found. Install with: brew install raylib")
+            message(FATAL_ERROR "Raylib not found. Install: sudo apt install libraylib-dev")
         endif()
-    else()
-        message(FATAL_ERROR "Raylib not found. Install: sudo apt install libraylib-dev")
     endif()
 endif()
 
@@ -80,6 +93,11 @@ else()
     target_link_libraries(simulation ${RAYLIB_LIBRARIES})
 endif()
 
+if(WIN32)
+    target_link_libraries(simulation opengl32 gdi32 winmm)
+    target_link_options(simulation PRIVATE -static)
+endif()
+
 # ============================================================================
 # Testing
 # ============================================================================
@@ -87,6 +105,9 @@ endif()
 enable_testing()
 add_executable(test_neural_network tests/test_neural_network.cpp src/core/neural_network.cpp)
 target_include_directories(test_neural_network PRIVATE ${PROJECT_INCLUDES})
+if(WIN32)
+    target_link_options(test_neural_network PRIVATE -static)
+endif()
 add_test(NAME NeuralNetworkTests COMMAND test_neural_network)
 
 # ============================================================================

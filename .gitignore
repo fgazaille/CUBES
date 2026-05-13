@@ -32,3 +32,6 @@ test_nn
 
 # Test binary
 test_nn
+
+# windows build files
+build-win/
