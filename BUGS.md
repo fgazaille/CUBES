@@ -2,68 +2,43 @@
 
 ## CRITICAL
 
-### C1. `std::terminate` crash on second training session (`main.cpp` / `menu.cpp`)
-**Files:** `src/main.cpp:163-236`, `src/menu/menu.cpp:180-185`
+### C1. ~~`std::terminate` crash on second training session~~ **FIXED**
+**Fix:** `run_training()` now joins the previous thread before reassigning (`src/main.cpp:206-207`).
 
-When training finishes (agents reach 0 `episodes_done`), `do_training_active()` returns state to `HOME`. The training thread exits its task function but `TrainingStatus::thread` remains **joinable**. If the user starts a second training session via `TrainingConfig` → "Start Training", `run_training()` assigns `status->thread = std::thread(...)`, destroying the still-joinable previous `thread` object, which calls `std::terminate()`.
-
-**Trigger sequence:**
-1. Start training → let it finish → state returns to HOME menu
-2. Training thread completed but `thread` object never joined
-3. Click "Training" → "Start Training" → `run_training()` → new `std::thread` assigned → **crash**
-
-**Fix:** Join the old thread in `run_training()` before reassigning, or join it in `menu.run()` when leaving `TRAINING_ACTIVE` state.
-
-### C2. Same-index food double-erase corrupts food list when two agents eat same food in one step (`environment.cpp`)
-**Files:** `src/core/environment.cpp:218-266`
-
-Each agent task copies `food_list` locally, records the `(agent_idx, local_food_index)` pair on consumption, and the task processes the local copy. After the thread pool drains, the recorded indices are sorted descending and erased from the real `food_list`:
-
-```cpp
-std::sort(food_consumed.rbegin(), food_consumed.rend(),
-          [](const auto& a, const auto& b) { return a.second > b.second; });
-for (const auto& consumed : food_consumed) {
-    if (consumed.second >= 0 && consumed.second < static_cast<int>(food_list.size()))
-        food_list.erase(food_list.begin() + consumed.second);
-}
-```
-
-If **two agents eat from the same food item** in the same step (both land on the same grid cell that has food — there is no agent-grid-collision prevention), both record the same `local_food` index. The first `erase` removes that food, shifting all subsequent foods down by one. The second `erase` with the same index removes the **wrong** food.
-
-Same bug also triggers if two different food items happen to be at distinct indices that **collide after shifting** during sequential removal.
-
-**Fix:** Deduplicate `food_consumed` by index (e.g. `std::set<int>`) or track consumption by food position rather than index.
+### C2. ~~Same-index food double-erase corrupts food list~~ **FIXED**
+**Fix:** Food indices are deduplicated via `std::set<int, std::greater<int>>` before removal (`src/core/environment.cpp:203-212`).
 
 ---
 
 ## HIGH
 
-### H1. Training progress reports 0 food when no generation reset happens (`main.cpp` / `environment.cpp`)
-**Files:** `src/main.cpp:198`, `src/core/environment.cpp:300-314`
+### H1. ~~Training progress reports 0 food when no generation reset happens~~ **FIXED**
+**Fix:** The environment now tracks `best_food_ever` as a continuous atomic counter updated every step (`src/core/environment.cpp:164-167`). Training progress reads this value instead of depending on `last_gen_best_food`.
 
-`Environment::get_last_gen_best_food()` returns the `last_gen_best_food` field, which is **only updated inside `reset()`** (the full generation-level reset). With the new individual per-step agent respawning logic, agents can run for thousands of steps (and eat food) without ever triggering `reset()` (which requires `alive_count == 0` at the start of respawn). The training progress graph stays at `best_food: 0` until a generation-level reset happens, even though agents are actively eating.
-
-### H2. `NeuralNetwork::set_genome()` no bounds check — out-of-bounds read (`neural_network.cpp`)
-**Files:** `src/core/neural_network.cpp:299-328`
+### H2. `NeuralNetwork::set_genome()` no bounds check — out-of-bounds read
+**File:** `src/core/neural_network.cpp:299-328`
 
 ```cpp
 void NeuralNetwork::set_genome(const std::vector<double>& genome) {
     size_t index = 0;
     for (auto& layer : layers) {
-        // ... 
-        for (auto& w : weights)
-            for (auto& val : w)
+        const auto& weights_ref = layer.get_weights();
+        size_t weight_rows = weights_ref.size();
+        size_t weight_cols = weight_rows > 0 ? weights_ref[0].size() : 0;
+        // ...
+        for (auto& w : weights) {
+            for (auto& val : w) {
                 val = genome[index++];  // OOB if genome too short
-        for (auto& b : biases)
-            b = genome[index++];  // OOB if genome too short
+            }
+        }
     }
 }
 ```
 
 If `genome.size()` does not exactly match the expected flattened size, `index` overruns the vector. Called from `AI::load_brain_from_json` and `Environment::reset` — a corrupted `brain.json` can cause UB or a crash.
 
-### H3. NaN/Inf genome propagation through agent respawning (`environment.cpp`)
-**Files:** `src/core/environment.cpp:292-303`
+### H3. NaN/Inf genome propagation through agent respawning
+**File:** `src/core/environment.cpp:222-224`
 
 When extracting the template genome from a dead agent for respawning, there is no NaN/Inf validation:
 
@@ -74,10 +49,10 @@ if (!agent.is_alive() && !found_template) {
 }
 ```
 
-If training produced a NaN/Inf weight (possible via gradient explosion despite clipping), the invalid values propagate to ALL respawned agents, potentially corrupting the entire population in one step.
+If training produced a NaN/Inf weight (possible via gradient explosion despite clipping), the invalid values propagate to ALL respawned agents. **Mitigation:** `save_brain_to_json()` replaces NaN/Inf with 0.0 (`src/core/ai_agent.cpp:159-170`) and `load_brain_from_json()` rejects them (`src/core/ai_agent.cpp:186-190`), but the respawn code path bypasses save/load validation.
 
-### H4. `NeuralNetwork::get_genome()` crash on empty weights (`neural_network.cpp`)
-**Files:** `src/core/neural_network.cpp:277-284`
+### H4. `NeuralNetwork::get_genome()` crash on empty weights
+**File:** `src/core/neural_network.cpp:277-284`
 
 ```cpp
 const auto& weights = layer.get_weights();
@@ -90,8 +65,8 @@ If `weights.size() == 0` (empty weights matrix), `weights[0]` is undefined behav
 
 ## MEDIUM
 
-### M1. `operator=` does not copy `train_step_counter` or `gen`/`dis` (`ai_agent.cpp`)
-**Files:** `src/core/ai_agent.cpp:98-108`
+### M1. `operator=` does not copy `train_step_counter` or `gen`/`dis`
+**File:** `src/core/ai_agent.cpp:131-150`
 
 ```cpp
 AI& AI::operator=(const AI& other) {
@@ -108,67 +83,44 @@ AI& AI::operator=(const AI& other) {
 
 The `train_step_counter` (controls DQN train interval) and RNG state (`gen`/`dis`) are not copied. After assignment, the new agent's RNG produces unpredictable sequences, and `train_step_counter` stays at its default 0, causing an immediate DQN training step even if the source agent wasn't due for one.
 
-### M2. Sidebar food-history graph persists across visual-sim resets (`renderer.cpp`)
-**Files:** `src/rendering/renderer.cpp:19-23, 107-123`
+### M2. Sidebar food-history graph persists across visual-sim resets
+**File:** `src/rendering/renderer.cpp:87-101`
 
-When the user presses `R` in the visual simulation, `env.reset()` is called. The `agent_history[]` array is **not** cleared — it is only cleared when `ep < last_recorded_episode` (a new-simulation condition) or when agent count changes. Since `env.reset()` increments episode (e.g. 1 → 2), the new data appends to old data, visually blending multiple generations into one graph.
+When the user presses `R` in the visual simulation, `env.reset()` is called. The `agent_history` vector is **not** cleared — it is only cleared when agent count changes. Since `env.reset()` increments episode (e.g. 1 → 2), the new data appends to old data, visually blending multiple generations into one graph.
 
-### M3. Dead code: `select_parents()` and `crossover()` (`environment.hpp` / `environment.cpp`)
-**Files:** `include/core/environment.hpp:62-81`, `src/core/environment.cpp:100-127`
+### M3. ~~Dead code: `select_parents()` and `crossover()`~~ **FIXED**
+**Fix:** These methods were removed during refactoring. Evolution now uses `mutate_genome()` in place.
 
-The `select_parents()` and `crossover()` methods are declared, defined, and documented but **never called**. `reset()` now uses the simpler template-genome-with-mutation approach. This is dead code that adds confusion.
-
-### M4. Duplicate food on same grid cell (`environment.cpp`)
-**Files:** `src/core/environment.cpp:110-120`
+### M4. Duplicate food on same grid cell
+**File:** `src/core/environment.cpp:31-40`
 
 `spawn_food()` places food at random `(x, y)` coordinates without checking for existing food or agent occupancy. Multiple food items can occupy the same cell. Agents that land on such a cell eat all food there at once in a single step.
 
-### M5. Duplicate agents on same grid cell (`ai_agent.cpp` / `environment.cpp`)
-**Files:** `src/core/ai_agent.cpp:38-39`, `src/core/environment.cpp:141-145`
+### M5. Duplicate agents on same grid cell
+**File:** `src/core/environment.cpp:106-109`, `src/core/environment.cpp:243-246`
 
-Agent spawning (both constructor and `reset()`) places agents at random positions without overlap checking. Multiple agents can start on the same cell.
+Agent placement (both `reset()` and respawn) places agents at random positions without overlap checking. Multiple agents can start on the same cell.
 
 ---
 
 ## LOW
 
-### L1. Visual-sim agent history capped at 16 agents (`renderer.cpp`)
-**Files:** `src/rendering/renderer.cpp:15`
+### L1. ~~Visual-sim agent history capped at 16 agents~~ **FIXED**
+**Fix:** The hardcoded 16-element array was replaced with `std::vector<std::vector<FoodPoint>>` (`src/rendering/renderer.cpp:15`). History limit is now `MAX_HISTORY = 500`.
 
-```cpp
-std::vector<FoodPoint> agent_history[16];
-```
-
-Hardcoded 16-element array. If `agent_count > 16`, agents beyond index 15 are silently omitted from the sidebar graph. The `i < 16` guard prevents overflow but loses data.
-
-### L2. Sidebar legend overflow on multi-agent (`renderer.cpp`)
-**Files:** `src/rendering/renderer.cpp:322-337`
+### L2. Sidebar legend overflow on multi-agent
+**File:** `src/rendering/renderer.cpp:348-363`
 
 The legend line for "Best" + per-agent labels draws sequentially left-to-right. With >6-8 agents the labels overflow the sidebar width. The `lx + 22 > graph_x + graph_w` break prevents a visual glitch but drops agents from the legend silently.
 
-### L3. `GRID_HEIGHT` misleading — equals `SCREEN_HEIGHT`, never used as grid extent (`config.hpp`)
-**Files:** `include/core/config.hpp:63`
+### L3. ~~`GRID_HEIGHT` misleading — equals `SCREEN_HEIGHT`~~ **FIXED**
+**Fix:** The `GRID_WIDTH`/`GRID_HEIGHT` constants were removed from `config.hpp`. The grid is now always drawn as a square.
 
-```cpp
-inline int GRID_WIDTH = SCREEN_WIDTH - SIDEBAR_WIDTH;
-inline int GRID_HEIGHT = SCREEN_HEIGHT;
-```
+### L4. ~~Mouse click not validated against actual grid extent~~ **FIXED**
+**Fix:** The debug click handler now checks `mp.x < gpw && mp.y < gpw` where `gpw = cell_size * grid_size` (`src/main.cpp:80`), correctly restricting clicks to the grid area.
 
-`GRID_HEIGHT` is the full screen height, not the grid's visual height. The grid is always drawn as a square (`cell_size * grid_size` on each side) at `renderer.cpp:126`. `GRID_HEIGHT` is only used for mouse click bounds in `main.cpp:86` — clicking anywhere in the full vertical extent of the window (including below the grid) is accepted as a grid click.
-
-### L4. Mouse click not validated against actual grid extent (`main.cpp`)
-**Files:** `src/main.cpp:84-99`
-
-```cpp
-if (mp.x < GRID_WIDTH && mp.y < GRID_HEIGHT) {
-    int cx = (int)mp.x / CELL_SIZE;
-    int cy = (int)mp.y / CELL_SIZE;
-```
-
-`GRID_HEIGHT == SCREEN_HEIGHT`, not the grid's visual height (`cell_size * grid_size`). A click below the grid (e.g. y=850 on a 900px window with a 700px grid) passes the bounds check. `cy` can index a non-existent cell row.
-
-### L5. `copy_weights_from()` no shape compatibility check (`neural_network.cpp`)
-**Files:** `src/core/neural_network.cpp:253-258`
+### L5. `copy_weights_from()` no shape compatibility check
+**File:** `src/core/neural_network.cpp:253-258`
 
 ```cpp
 void NeuralNetwork::copy_weights_from(const NeuralNetwork& other) {
@@ -181,34 +133,27 @@ void NeuralNetwork::copy_weights_from(const NeuralNetwork& other) {
 
 If `layers.size()` or shapes differ (e.g. architectural change between saved brain and current config), this silently copies wrong data. In practice the structure is always identical for DQN target copies, but `set_genome` (called from `load_brain_from_json`) can supply a genome for a different architecture.
 
-### L6. `brain_save_mutex` function-local static in `reset()` (`environment.cpp`)
-**Files:** `src/core/environment.cpp:158`
+### L6. ~~`brain_save_mutex` function-local static~~ **FIXED**
+**Fix:** The function-local static mutex was removed during refactoring. Brain saving now uses `last_saved_best_food_` as a threshold guard.
 
-```cpp
-static std::mutex brain_save_mutex;
-std::lock_guard<std::mutex> lock(brain_save_mutex);
-```
+### L7. Food is not replenished when `cfg.food_count` changes
+**File:** `src/core/environment.cpp:24-41`
 
-Function-local `static` mutex is unnecessary in single-environment mode. If two `Environment` instances somehow called `reset()` concurrently (e.g. a future refactor), the mutex would be shared across all instances, which is correct but fragile. Better to make it a member.
+`spawn_food()` only spawns enough food to reach `cfg.food_count`. If `cfg.food_count` is increased at runtime (via settings menu), the food count rises to meet the new target. But if `cfg.food_count` is **decreased**, existing food above the new count is never cleaned up and remains on the grid.
 
-### L7. Food is not replenished when `cfg.food_count` changes (`environment.cpp`)
-**Files:** `src/core/environment.cpp:110-120`
+### L8. `food_reset_threshold` can be larger than `food_count`
+**File:** `include/core/config.hpp:92`, `src/core/environment.cpp:43-47`
 
-`spawn_food()` only spawns enough food to reach `cfg.food_count`. If `cfg.food_count` is increased at runtime (via `--repl` param or settings menu), the food count rises to meet the new target. But if `cfg.food_count` is **decreased**, existing food above the new count is never cleaned up and remains on the grid.
-
-### L8. `food_reset_threshold` can be larger than `food_count` (`config.hpp` / `menu.cpp`)
-**Files:** `include/core/config.hpp:102`, `src/menu/menu.cpp:360`
-
-The settings menu allows `food_reset_threshold` up to 100 but `food_count` can be as low as 1. If `threshold > count`, `spawn_food()` is called every step (since `food_list.size()` is always `< threshold`), wasting CPU spawning 0 food (`to_spawn = count - size ≤ 0` → early return). Harmless but wasteful.
+The settings menu allows `food_reset_threshold` up to 200 but `food_count` can be as low as 1. If `threshold > count`, `spawn_food()` is called every step (since `food_list.size()` is always `< threshold`), wasting CPU spawning 0 food (`to_spawn = count - size ≤ 0` → early return). Harmless but wasteful.
 
 ---
 
 ## TESTING ISSUES
 
-### T1. `test_neural_network.cpp` does not test `set_genome` with wrong-sized genome (`tests/test_neural_network.cpp`)
-**Files:** `tests/test_neural_network.cpp:27-44`
+### T1. `test_neural_network.cpp` does not test `set_genome` with wrong-sized genome
+**File:** `tests/test_neural_network.cpp`
 
-The `test_network_genome` test gets a genome from the source network and sets it on a target with the same architecture. There is no test for loading a genome of incorrect size (which would trigger H2/OOB-read).
+The genome-size mismatch test is still missing. A corrupted `brain.json` triggers H2 (OOB read).
 
 ### T2. No integration test for food consumption or agent respawning
 **Files:** (missing)
@@ -220,17 +165,38 @@ The test suite only covers neural network forward/copy/train. There are no tests
 - Parallel step execution correctness
 - Brain save/load round-trip
 
+### T3. No test for cross-platform DPI scaling
+**Files:** (missing)
+
+The `os_scale()` function uses `GetRenderWidth()/GetScreenWidth()` as the primary DPI source with a `GetWindowScaleDPI()` fallback. There is no automated test to verify the scale factor is correct across platforms.
+
 ---
 
 ## SUMMARY BY FILE
 
 | File | Bugs |
 |---|---|
-| `src/main.cpp` | C1, H1, L4 |
-| `src/menu/menu.cpp` | C1 |
-| `src/core/environment.cpp` | C2, H1, H3, M3, M4, M5, L6, L7 |
-| `src/core/ai_agent.cpp` | M1, M5 |
+| `src/main.cpp` | — |
+| `src/menu/menu.cpp` | — |
+| `src/core/environment.cpp` | H3, M4, M5, L7, L8 |
+| `src/core/ai_agent.cpp` | M1 |
 | `src/core/neural_network.cpp` | H2, H4, L5 |
-| `src/rendering/renderer.cpp` | M2, L1, L2 |
-| `include/core/config.hpp` | L3, L8 |
+| `src/rendering/renderer.cpp` | M2, L2 |
+| `include/core/config.hpp` | L8 |
+| `include/rendering/renderer.hpp` | — (T3) |
 | `tests/test_neural_network.cpp` | T1, T2 |
+
+## RESOLVED
+
+| ID | Bug | Fix |
+|---|---|---|
+| C1 | `std::terminate` on second training | Join thread before reassign |
+| C2 | Food double-erase corruption | Dedup indices with set |
+| H1 | Training progress 0 food | Added `best_food_ever` atomic |
+| M3 | Dead code `select_parents`/`crossover` | Removed during refactor |
+| L1 | Agent history capped at 16 | Replaced fixed array with vector |
+| L3 | `GRID_HEIGHT` misleading | Removed constants |
+| L4 | Click not validated against grid | Use `gpw` for both bounds |
+| L6 | Function-local `brain_save_mutex` | Removed during refactor |
+| — | DPI scaling inconsistent across platforms | `os_scale()` uses render ratio with fallback |
+| — | Window size inconsistent across platforms | Init size scaled to monitor |

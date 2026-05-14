@@ -125,6 +125,14 @@ CUBES/
 - **Modern UI**: Raygui-based menus with dark theme
 - **Improved visuals**: Rounded corners, smooth animations, cleaner agent rendering
 - **Fixed brain save path**: Now uses `assets/brain.json` consistently
+- **Cross-platform DPI scaling**: `os_scale()` detects the correct scale on Windows,
+  Linux (X11/Wayland), and macOS via render/screen ratio with physical-DPI fallback
+- **Consistent initial window size**: Window is sized relative to the current monitor
+  instead of a fixed 800×600, preventing too-small rendering on Windows with HiDPI
+
+## TODO
+
+See [`docs/TODO`](docs/TODO) for current known bugs and planned features.
 
 ## License
 

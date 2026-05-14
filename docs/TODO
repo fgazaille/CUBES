@@ -1,4 +1,21 @@
-- fix players sometimes  walking over food
-- fix overlapping settings
-- organize settings menu
-- add other tile types (obstacle, kill, gold food for example)
+KNOWN BUGS (see BUGS.md for details):
+- H2: set_genome OOB read
+- H3: NaN propagation through respawn (partially mitigated)
+- H4: get_genome crash on empty weights
+- M1: operator= missing train_step_counter, gen, dis
+- M2: sidebar history persists across resets
+- M4: duplicate food on same cell
+- M5: duplicate agents on same cell
+- L2: legend overflow in sidebar
+- L5: copy_weights_from no shape check
+- L7: food not removed when food_count decreased
+- L8: food_reset_threshold can exceed food_count
+
+RENDERING:
+- Use sp() (or a logical helper) for the sidebar layout font sizes instead of raw px
+- Consider removing the sidebar minimum-width constraint that forces sp() into layout math
+
+FEATURES:
+- add other tile types (obstacle, kill, gold food, etc.)
+- organize settings menu (group by category with sections)
+- add configurable controls / keybindings
