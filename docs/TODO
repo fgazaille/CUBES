@@ -1,5 +1,4 @@
-- add multiple compute threads per training simulation
 - fix players sometimes  walking over food
 - fix overlapping settings
 - organize settings menu
-- add brain settings
+- add other tile types (obstacle, kill, gold food for example)

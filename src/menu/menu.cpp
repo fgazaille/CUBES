@@ -1,6 +1,7 @@
 #define RAYGUI_IMPLEMENTATION
 #include "menu.hpp"
 #include "environment.hpp"
+#include "renderer.hpp"
 #include <sstream>
 #include <cmath>
 #include <cstring>
@@ -11,7 +12,7 @@ Menu::Menu(TrainingStatus* training_status)
     : training_status_ptr_(training_status) {
     snprintf(ep_buf_, sizeof(ep_buf_), "%d", training_config_.episodes);
     snprintf(par_buf_, sizeof(par_buf_), "%d", training_config_.parallel_envs);
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 16);
+    GuiSetStyle(DEFAULT, TEXT_SIZE, sp(16));
     GuiSetStyle(DEFAULT, BACKGROUND_COLOR, ColorToInt(CLITERAL(Color){13,17,23,255}));
     GuiSetStyle(BUTTON, BASE_COLOR_NORMAL,   ColorToInt(CLITERAL(Color){30,36,44,255}));
     GuiSetStyle(BUTTON, TEXT_COLOR_NORMAL,   ColorToInt(CLITERAL(Color){201,209,217,255}));
@@ -86,29 +87,29 @@ void Menu::do_home() {
         DrawRectangle(0, y, sw, 6, row);
     }
 
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 48);
-    int tw = MeasureText("CUBES", 48);
+    GuiSetStyle(DEFAULT, TEXT_SIZE, sp(48));
+    int tw = MeasureText("CUBES", sp(48));
     for (int i = 3; i >= 0; --i) {
         Color glow = {88, 166, 255, (unsigned char)(20 - i * 5)};
-        DrawText("CUBES", (sw - tw) / 2 - i, 50 - i, 48, glow);
-        DrawText("CUBES", (sw - tw) / 2 + i, 50 + i, 48, glow);
+        DrawText("CUBES", (sw - tw) / 2 - i, 50 - i, sp(48), glow);
+        DrawText("CUBES", (sw - tw) / 2 + i, 50 + i, sp(48), glow);
     }
-    DrawText("CUBES", (sw - tw) / 2, 50, 48, CLITERAL(Color){88,166,255,255});
+    DrawText("CUBES", (sw - tw) / 2, 50, sp(48), CLITERAL(Color){88,166,255,255});
 
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 18);
-    tw = MeasureText("AI Learning Simulation", 18);
-    DrawText("AI Learning Simulation", (sw - tw) / 2, 110, 18, CLITERAL(Color){139,148,158,255});
+    GuiSetStyle(DEFAULT, TEXT_SIZE, sp(18));
+    tw = MeasureText("AI Learning Simulation", sp(18));
+    DrawText("AI Learning Simulation", (sw - tw) / 2, 110, sp(18), CLITERAL(Color){139,148,158,255});
     int ul_w = sw + 40;
     DrawRectangle((sw - ul_w) / 2, 135, ul_w, 1, CLITERAL(Color){48,54,61,255});
 
-    int card_x = (sw - 240) / 2;
-    int card_y = 170;
-    int card_w = 240;
-    int card_h = 270;
+    int card_w = sp(240);
+    int card_x = (sw - card_w) / 2;
+    int card_y = sp(170);
+    int card_h = sp(270);
     DrawRectangleRounded({(float)card_x, (float)card_y, (float)card_w, (float)card_h}, 0.12f, 8, CLITERAL(Color){22,27,34,255});
     DrawRectangleRoundedLines({(float)card_x, (float)card_y, (float)card_w, (float)card_h}, 0.12f, 8, CLITERAL(Color){48,54,61,255});
 
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 16);
+    GuiSetStyle(DEFAULT, TEXT_SIZE, sp(16));
     struct Btn { const char* label; MenuState target; };
     Btn btns[] = {
         {"Start Simulation", MenuState::START_SIM},
@@ -118,24 +119,24 @@ void Menu::do_home() {
         {"Exit",             MenuState::EXIT}
     };
 
-    int bx = (sw - 200) / 2;
-    int by = card_y + 20;
+    int bx = (sw - sp(200)) / 2;
+    int by = card_y + sp(20);
     for (auto& b : btns) {
-        if (GuiButton({(float)bx, (float)by, 200, 40}, b.label))
+        if (GuiButton({(float)bx, (float)by, sp(200), sp(40)}, b.label))
             current_state_ = b.target;
-        by += 48;
+        by += sp(48);
     }
 
     bool brain_exists = std::ifstream(brain_file_path()).good();
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 13);
+    GuiSetStyle(DEFAULT, TEXT_SIZE, sp(13));
     const char* msg = brain_exists
         ? "Brain file found - will auto-load"
         : "No brain file - agents will use random brains";
     Color msg_col = brain_exists
         ? CLITERAL(Color){63,185,80,255}
         : CLITERAL(Color){248,81,73,255};
-    tw = MeasureText(msg, 13);
-    DrawText(msg, (sw - tw) / 2, sh - 40, 13, msg_col);
+    tw = MeasureText(msg, sp(13));
+    DrawText(msg, (sw - tw) / 2, sh - sp(40), sp(13), msg_col);
 
     EndDrawing();
 }
@@ -148,27 +149,26 @@ void Menu::do_training_config() {
 
     int sw = GetScreenWidth();
 
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 36);
-    int tw = MeasureText("Training", 36);
-    DrawText("Training", (sw - tw) / 2, 25, 36, CLITERAL(Color){88,166,255,255});
+    GuiSetStyle(DEFAULT, TEXT_SIZE, sp(36));
+    int tw = MeasureText("Training", sp(36));
+    DrawText("Training", (sw - tw) / 2, 25, sp(36), CLITERAL(Color){88,166,255,255});
 
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 14);
-    tw = MeasureText("Run N parallel simulations for faster exploration.", 14);
+    GuiSetStyle(DEFAULT, TEXT_SIZE, sp(14));
+    tw = MeasureText("Run N parallel simulations for faster exploration.", sp(14));
     DrawText("Run N parallel simulations for faster exploration.",
-             (sw - tw) / 2, 75, 14, CLITERAL(Color){139,148,158,255});
+             (sw - tw) / 2, 75, sp(14), CLITERAL(Color){139,148,158,255});
 
-    int px = (sw - 500) / 2;
-    DrawRectangleRounded({(float)(px + 3), (float)(110 + 3), 500, 280}, 0.1f, 8, CLITERAL(Color){8,11,16,255});
-    DrawRectangleRounded({(float)px, 110, 500, 280}, 0.1f, 8, CLITERAL(Color){22,27,34,255});
-    DrawRectangleRoundedLines({(float)px, 110, 500, 280}, 0.1f, 8, CLITERAL(Color){48,54,61,255});
+    int px = (sw - sp(500)) / 2;
+    DrawRectangleRounded({(float)(px + 3), (float)(110 + 3), sp(500), sp(280)}, 0.1f, 8, CLITERAL(Color){8,11,16,255});
+    DrawRectangleRounded({(float)px, 110, sp(500), sp(280)}, 0.1f, 8, CLITERAL(Color){22,27,34,255});
+    DrawRectangleRoundedLines({(float)px, 110, sp(500), sp(280)}, 0.1f, 8, CLITERAL(Color){48,54,61,255});
+    int lx = px + sp(30);
+    int fx = px + sp(180);
 
-    int lx = px + 30;
-    int fx = px + 180;
+    GuiSetStyle(DEFAULT, TEXT_SIZE, sp(14));
 
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 14);
-
-    DrawText("Episodes:", lx, 135, 14, CLITERAL(Color){201,209,217,255});
-    Rectangle ep_r = {(float)fx, 130, 160, 30};
+    DrawText("Episodes:", lx, sp(135), sp(14), CLITERAL(Color){201,209,217,255});
+    Rectangle ep_r = {(float)fx, (float)sp(130), sp(160), sp(30)};
     if (GuiTextBox(ep_r, ep_buf_, 31, editing_episodes_))
         editing_episodes_ = !editing_episodes_;
     if (!editing_episodes_) {
@@ -176,8 +176,8 @@ void Menu::do_training_config() {
         catch (...) {}
     }
 
-    DrawText("Parallel Envs:", lx, 178, 14, CLITERAL(Color){201,209,217,255});
-    Rectangle par_r = {(float)fx, 173, 160, 30};
+    DrawText("Parallel Envs:", lx, sp(178), sp(14), CLITERAL(Color){201,209,217,255});
+    Rectangle par_r = {(float)fx, (float)sp(173), sp(160), sp(30)};
     if (GuiTextBox(par_r, par_buf_, 31, editing_parallel_))
         editing_parallel_ = !editing_parallel_;
     if (!editing_parallel_) {
@@ -185,28 +185,28 @@ void Menu::do_training_config() {
         catch (...) {}
     }
 
-    DrawText("Auto-save brain:", lx, 221, 14, CLITERAL(Color){201,209,217,255});
-    Rectangle as_r = {(float)fx, 216, 80, 28};
+    DrawText("Auto-save brain:", lx, sp(221), sp(14), CLITERAL(Color){201,209,217,255});
+    Rectangle as_r = {(float)fx, (float)sp(216), sp(80), sp(28)};
     if (GuiButton(as_r, training_config_.auto_save ? "ON" : "OFF"))
         training_config_.auto_save = !training_config_.auto_save;
 
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 13);
+    GuiSetStyle(DEFAULT, TEXT_SIZE, sp(13));
     struct { const char* label; int val; } qbtns[] = {
         {"1K", 1000}, {"10K", 10000}, {"50K", 50000}, {"100K", 100000}
     };
-    Rectangle qb = {(float)px + 170, 270, 65, 28};
+    Rectangle qb = {(float)(px + sp(170)), (float)sp(270), sp(65), sp(28)};
     for (auto& q : qbtns) {
         if (GuiButton(qb, q.label)) {
             training_config_.episodes = q.val;
             snprintf(ep_buf_, sizeof(ep_buf_), "%d", q.val);
         }
-        qb.x += qb.width + 12;
+        qb.x += qb.width + sp(12);
     }
 
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 16);
-    int btn_w = 140, btn_h = 40, gap = 20;
+    GuiSetStyle(DEFAULT, TEXT_SIZE, sp(16));
+    int btn_w = sp(140), btn_h = sp(40), gap = sp(20);
     int start_x = (sw - 2 * btn_w - gap) / 2;
-    if (GuiButton({(float)start_x, 330, (float)btn_w, (float)btn_h}, "Start Training")) {
+    if (GuiButton({(float)start_x, (float)sp(330), (float)btn_w, (float)btn_h}, "Start Training")) {
         if (training_status_ptr_) {
             std::lock_guard<std::mutex> hlock(training_status_ptr_->history_mutex);
             training_status_ptr_->food_history.clear();
@@ -217,13 +217,13 @@ void Menu::do_training_config() {
         snprintf(par_buf_, sizeof(par_buf_), "%d", training_config_.parallel_envs);
         current_state_ = MenuState::TRAINING_ACTIVE;
     }
-    if (GuiButton({(float)(start_x + btn_w + gap), 330, (float)btn_w, (float)btn_h}, "Back"))
+    if (GuiButton({(float)(start_x + btn_w + gap), (float)sp(330), (float)btn_w, (float)btn_h}, "Back"))
         current_state_ = MenuState::HOME;
 
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 13);
+    GuiSetStyle(DEFAULT, TEXT_SIZE, sp(13));
     const char* tip = "ESC to go back";
-    int tix = (sw - MeasureText(tip, 13)) / 2;
-    DrawText(tip, tix, 410, 13, CLITERAL(Color){100,108,118,255});
+    int tix = (sw - MeasureText(tip, sp(13))) / 2;
+    DrawText(tip, tix, sp(410), sp(13), CLITERAL(Color){100,108,118,255});
 
     EndDrawing();
 }
@@ -245,14 +245,14 @@ void Menu::do_training_active() {
     float prog = (total > 0) ? (float)done / total : 0.0f;
     prog = std::max(0.0f, std::min(1.0f, prog));
 
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 36);
-    int tw = MeasureText("Training", 36);
-    DrawText("Training", (sw - tw) / 2, 15, 36, CLITERAL(Color){88,166,255,255});
+    GuiSetStyle(DEFAULT, TEXT_SIZE, sp(36));
+    int tw = MeasureText("Training", sp(36));
+    DrawText("Training", (sw - tw) / 2, 15, sp(36), CLITERAL(Color){88,166,255,255});
 
     std::string best_str = "Best food: " + std::to_string(best) + "  (" + std::to_string(par) + " parallel)";
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 18);
-    tw = MeasureText(best_str.c_str(), 18);
-    DrawText(best_str.c_str(), (sw - tw) / 2, 60, 18, CLITERAL(Color){63,185,80,255});
+    GuiSetStyle(DEFAULT, TEXT_SIZE, sp(18));
+    tw = MeasureText(best_str.c_str(), sp(18));
+    DrawText(best_str.c_str(), (sw - tw) / 2, 60, sp(18), CLITERAL(Color){63,185,80,255});
 
     // Progress bar
     Rectangle bar = {(float)(sw / 2 - 250), 100, 500, 28};
@@ -263,16 +263,16 @@ void Menu::do_training_active() {
     }
     DrawRectangleRoundedLines(bar, 0.14f, 8, CLITERAL(Color){48,54,61,255});
 
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 14);
+    GuiSetStyle(DEFAULT, TEXT_SIZE, sp(14));
     std::string pct_str = std::to_string(done) + " / " + std::to_string(total) + " episodes  (" + std::to_string((int)(prog * 100)) + "%)";
-    int pctw = MeasureText(pct_str.c_str(), 14);
-    DrawText(pct_str.c_str(), (sw - pctw) / 2, 140, 14, CLITERAL(Color){201,209,217,255});
+    int pctw = MeasureText(pct_str.c_str(), sp(14));
+    DrawText(pct_str.c_str(), (sw - pctw) / 2, 140, sp(14), CLITERAL(Color){201,209,217,255});
 
     // ── Food history graph ────────────────────────────────────────────────
-    int graph_x = 60;
-    int graph_y = 190;
-    int graph_w = sw - 120;
-    int graph_h = 160;
+    int graph_x = sp(60);
+    int graph_y = sp(190);
+    int graph_w = sw - sp(120);
+    int graph_h = sp(160);
 
     DrawRectangleRounded({(float)(graph_x + 3), (float)(graph_y + 3), (float)graph_w, (float)graph_h}, 0.1f, 8, CLITERAL(Color){8,11,16,255});
     DrawRectangleRounded({(float)graph_x, (float)graph_y, (float)graph_w, (float)graph_h}, 0.1f, 8, CLITERAL(Color){22,27,34,255});
@@ -320,9 +320,9 @@ void Menu::do_training_active() {
                 lbl = std::to_string(val);
             else
                 lbl = std::to_string(max_best * i / 4.0).substr(0, 4);
-            DrawText(lbl.c_str(), graph_x + 2, ly - 7, 9, CLITERAL(Color){100,108,118,255});
+            DrawText(lbl.c_str(), graph_x + 2, ly - 7, sp(9), CLITERAL(Color){100,108,118,255});
         }
-        DrawText("Best Ever", graph_x + 2, plot_y, 9, best_col);
+        DrawText("Best Ever", graph_x + 2, plot_y, sp(9), best_col);
 
         // ── Right Y-axis: Food/100 steps ──────────────────────────────────
         int rx = plot_x + plot_w + 4;
@@ -334,14 +334,14 @@ void Menu::do_training_active() {
                 lbl = std::to_string(val);
             else
                 lbl = std::to_string(max_rate * i / 4.0).substr(0, 4);
-            DrawText(lbl.c_str(), rx, ly - 7, 9, CLITERAL(Color){100,108,118,255});
+            DrawText(lbl.c_str(), rx, ly - 7, sp(9), CLITERAL(Color){100,108,118,255});
         }
-        DrawText("Rate", rx, plot_y, 9, rate_col);
+        DrawText("Rate", rx, plot_y, sp(9), rate_col);
 
         // ── X-axis ────────────────────────────────────────────────────────
         std::string xlbl = "Steps";
-        int xlw = MeasureText(xlbl.c_str(), 9);
-        DrawText(xlbl.c_str(), plot_x + plot_w - xlw - 2, graph_y + graph_h - 18, 9, CLITERAL(Color){100,108,118,255});
+        int xlw = MeasureText(xlbl.c_str(), sp(9));
+        DrawText(xlbl.c_str(), plot_x + plot_w - xlw - 2, graph_y + graph_h - 18, sp(9), CLITERAL(Color){100,108,118,255});
 
         // ── Trace 1: Best Ever ────────────────────────────────────────────
         {
@@ -373,8 +373,8 @@ void Menu::do_training_active() {
             ly = std::max(plot_y, std::min(plot_y + plot_h, ly));
             DrawCircle(lx, ly, 4, best_col);
             std::string val = std::to_string(last.best_food);
-            int vw = MeasureText(val.c_str(), 11);
-            DrawText(val.c_str(), lx - vw / 2, ly - 16, 11, CLITERAL(Color){201,209,217,255});
+            int vw = MeasureText(val.c_str(), sp(11));
+            DrawText(val.c_str(), lx - vw / 2, ly - 16, sp(11), CLITERAL(Color){201,209,217,255});
         }
 
         // ── Trace 2: Food/100 steps (right Y-axis) ────────────────────────
@@ -406,24 +406,24 @@ void Menu::do_training_active() {
             int lx = plot_x;
             int ly = graph_y + graph_h - 16;
             DrawRectangle(lx, ly, 8, 8, best_col);
-            DrawText(" Best", lx + 10, ly - 2, 10, CLITERAL(Color){201,209,217,255});
+            DrawText(" Best", lx + 10, ly - 2, sp(10), CLITERAL(Color){201,209,217,255});
             lx += 55;
             DrawRectangle(lx, ly, 8, 8, rate_col);
-            DrawText(" Rate", lx + 10, ly - 2, 10, CLITERAL(Color){201,209,217,255});
+            DrawText(" Rate", lx + 10, ly - 2, sp(10), CLITERAL(Color){201,209,217,255});
         }
     } else {
-        DrawText("Collecting data...", graph_x + 40, graph_y + graph_h / 2 - 8, 14, CLITERAL(Color){100,108,118,255});
+        DrawText("Collecting data...", graph_x + 40, graph_y + graph_h / 2 - 8, sp(14), CLITERAL(Color){100,108,118,255});
     }
 
     // STOP button
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 20);
-    if (GuiButton({(float)(sw / 2 - 60), (float)(graph_y + graph_h + 20), 120, 45}, "STOP")) {
+    GuiSetStyle(DEFAULT, TEXT_SIZE, sp(20));
+    if (GuiButton({(float)(sw / 2 - sp(60)), (float)(graph_y + graph_h + sp(20)), sp(120), sp(45)}, "STOP")) {
         g_training_stop_flag.store(true);
     }
 
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 13);
-    int tipw = MeasureText("ESC to cancel training", 13);
-    DrawText("ESC to cancel training", (sw - tipw) / 2, graph_y + graph_h + 80, 13, CLITERAL(Color){100,108,118,255});
+    GuiSetStyle(DEFAULT, TEXT_SIZE, sp(13));
+    int tipw = MeasureText("ESC to cancel training", sp(13));
+    DrawText("ESC to cancel training", (sw - tipw) / 2, graph_y + graph_h + sp(80), sp(13), CLITERAL(Color){100,108,118,255});
 
     if (training_status_ptr_ && !training_status_ptr_->active.load()) {
         {
@@ -466,27 +466,27 @@ void Menu::do_settings() {
         snprintf(max_threads_buf_, sizeof(max_threads_buf_), "%d", cfg.max_threads);
     }
 
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 36);
-    int tw = MeasureText("Settings", 36);
-    DrawText("Settings", (sw - tw) / 2, 25, 36, CLITERAL(Color){88,166,255,255});
+    GuiSetStyle(DEFAULT, TEXT_SIZE, sp(36));
+    int tw = MeasureText("Settings", sp(36));
+    DrawText("Settings", (sw - tw) / 2, 25, sp(36), CLITERAL(Color){88,166,255,255});
 
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 14);
-    tw = MeasureText("Adjust simulation parameters.", 14);
+    GuiSetStyle(DEFAULT, TEXT_SIZE, sp(14));
+    tw = MeasureText("Adjust simulation parameters.", sp(14));
     DrawText("Adjust simulation parameters.",
-             (sw - tw) / 2, 75, 14, CLITERAL(Color){139,148,158,255});
+             (sw - tw) / 2, 75, sp(14), CLITERAL(Color){139,148,158,255});
 
-    int px = (sw - 500) / 2;
-    DrawRectangleRounded({(float)(px + 3), (float)(110 + 3), 500, 350}, 0.1f, 8, CLITERAL(Color){8,11,16,255});
-    DrawRectangleRounded({(float)px, 110, 500, 350}, 0.1f, 8, CLITERAL(Color){22,27,34,255});
-    DrawRectangleRoundedLines({(float)px, 110, 500, 350}, 0.1f, 8, CLITERAL(Color){48,54,61,255});
+    int px = (sw - sp(500)) / 2;
+    DrawRectangleRounded({(float)(px + 3), (float)(sp(110) + 3), sp(500), sp(350)}, 0.1f, 8, CLITERAL(Color){8,11,16,255});
+    DrawRectangleRounded({(float)px, sp(110), sp(500), sp(350)}, 0.1f, 8, CLITERAL(Color){22,27,34,255});
+    DrawRectangleRoundedLines({(float)px, sp(110), sp(500), sp(350)}, 0.1f, 8, CLITERAL(Color){48,54,61,255});
 
-    int card_w = 240;
-    int col1_x = px + 20;
-    int col2_x = px + card_w / 2 + 10;
-    int field_w = 170;
-    int label_w = 130;
-    int row_h = 32;
-    int start_y = 100;
+    int card_w = sp(240);
+    int col1_x = px + sp(20);
+    int col2_x = px + card_w / 2 + sp(10);
+    int field_w = sp(170);
+    int label_w = sp(130);
+    int row_h = sp(32);
+    int start_y = sp(100);
 
     struct Field {
         const char* label;
@@ -503,8 +503,8 @@ void Menu::do_settings() {
 
     auto draw_field = [&](const Field& f, int x, int y) {
         Color c = *f.editing ? CLITERAL(Color){88,166,255,255} : CLITERAL(Color){201,209,217,255};
-        DrawText(f.label, x, y + 7, 13, c);
-        Rectangle r = {(float)(x + label_w), (float)y, (float)field_w, 28};
+        DrawText(f.label, x, y + 7, sp(13), c);
+        Rectangle r = {(float)(x + label_w), (float)y, (float)field_w, sp(28)};
         if (GuiTextBox(r, f.buf, f.buf_size - 1, *f.editing))
             *f.editing = !*f.editing;
         if (!*f.editing) {
@@ -558,14 +558,14 @@ void Menu::do_settings() {
         draw_field(fields[i], col_x, start_y + row * row_h);
     }
 
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 11);
+    GuiSetStyle(DEFAULT, TEXT_SIZE, sp(11));
     const char* tip = "CPU Threads: 0 = auto (use all cores)";
     int tip_x = col2_x + label_w;
     int tip_y = start_y + (8 + 1) * row_h;
-    DrawText(tip, tip_x, tip_y + 8, 11, CLITERAL(Color){100,108,118,255});
+    DrawText(tip, tip_x, tip_y + sp(8), sp(11), CLITERAL(Color){100,108,118,255});
 
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 16);
-    if (GuiButton({(float)(px + 190), 420, 120, 32}, "Back")){
+    GuiSetStyle(DEFAULT, TEXT_SIZE, sp(16));
+    if (GuiButton({(float)(px + sp(190)), (float)sp(420), sp(120), sp(32)}, "Back")){
         current_state_ = MenuState::HOME;
     }
 
@@ -580,14 +580,14 @@ void Menu::do_about() {
 
     int sw = GetScreenWidth();
 
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 36);
-    int tw = MeasureText("About CUBES", 36);
-    DrawText("About CUBES", (sw - tw) / 2, 40, 36, CLITERAL(Color){88,166,255,255});
+    GuiSetStyle(DEFAULT, TEXT_SIZE, sp(36));
+    int tw = MeasureText("About CUBES", sp(36));
+    DrawText("About CUBES", (sw - tw) / 2, 40, sp(36), CLITERAL(Color){88,166,255,255});
 
     auto blurb = [&](const char* text, int y, int size) {
-        GuiSetStyle(DEFAULT, TEXT_SIZE, size);
-        tw = MeasureText(text, size);
-        DrawText(text, (sw - tw) / 2, y, size, CLITERAL(Color){139,148,158,255});
+        GuiSetStyle(DEFAULT, TEXT_SIZE, sp(size));
+        tw = MeasureText(text, sp(size));
+        DrawText(text, (sw - tw) / 2, sp(y), sp(size), CLITERAL(Color){139,148,158,255});
     };
 
     blurb("CUBES - AI Learning Simulation",                110, 18);
@@ -601,8 +601,8 @@ void Menu::do_about() {
     blurb("W - Warp  |  +/- - Speed  |  0 - Reset Warp",     350, 14);
     blurb("D - Debug  |  S - Save Brain  |  L - Load Brain", 375, 14);
 
-    GuiSetStyle(DEFAULT, TEXT_SIZE, 16);
-    if (GuiButton({(float)(sw / 2 - 60), 500, 120, 40}, "Back"))
+    GuiSetStyle(DEFAULT, TEXT_SIZE, sp(16));
+    if (GuiButton({(float)(sw / 2 - sp(60)), (float)sp(500), sp(120), sp(40)}, "Back"))
         current_state_ = MenuState::HOME;
 
     EndDrawing();

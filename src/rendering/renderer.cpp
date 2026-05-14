@@ -44,7 +44,7 @@ void close_renderer() {
 }
 
 static void draw_text(const std::string& text, int x, int y, int size, Color color) {
-    DrawTextEx(game_font, text.c_str(), {(float)x, (float)y}, (float)size, 1, color);
+    DrawTextEx(game_font, text.c_str(), {(float)x, (float)y}, (float)sp(size), 1, color);
 }
 
 void render_progress_bar(int x, int y, int w, int h,
@@ -78,7 +78,7 @@ void render_environment(const Environment& env,
     RuntimeConfig& cfg = RuntimeConfig::instance();
     int sw = GetScreenWidth();
     int sh = GetScreenHeight();
-    int min_sbw = 200;
+    int min_sbw = sp(200);
     int max_grid_w = std::max(1, sw - min_sbw);
     int cell_size = std::max(1, std::min(max_grid_w, sh) / cfg.grid_size);
     int grid_pixel_width = cell_size * cfg.grid_size;
@@ -176,7 +176,7 @@ void render_environment(const Environment& env,
 
     auto stat_line = [&](int y, const std::string& label, const std::string& value) {
         draw_text(label, grid_pixel_width + 15, y, 14, UI::TEXT_DIM);
-        draw_text(value, grid_pixel_width + sbw - 15 - MeasureTextEx(game_font, value.c_str(), 14, 1).x, y, 14, UI::TEXT);
+        draw_text(value, grid_pixel_width + sbw - 15 - MeasureTextEx(game_font, value.c_str(), sp(14), 1).x, y, 14, UI::TEXT);
     };
 
     int sy = 65;
@@ -285,7 +285,7 @@ void render_environment(const Environment& env,
 
         // X axis label
         std::stringstream sx; sx << "Step";
-        int sxw = (int)MeasureTextEx(game_font, sx.str().c_str(), 9, 1).x;
+        int sxw = (int)MeasureTextEx(game_font, sx.str().c_str(), sp(9), 1).x;
         draw_text(sx.str(), plot_x + plot_w - sxw - 2, graph_y + graph_h - 16, 9, UI::TEXT_DIM);
 
         int ep_range = std::max(1, max_ep - min_ep);
@@ -321,7 +321,7 @@ void render_environment(const Environment& env,
             ly = std::max(plot_y, std::min(plot_y + plot_h, ly));
             DrawCircle(lx, ly, 4, best_col);
             std::string val = std::to_string(last.food);
-            int vw = (int)MeasureTextEx(game_font, val.c_str(), 11, 1).x;
+            int vw = (int)MeasureTextEx(game_font, val.c_str(), sp(11), 1).x;
             draw_text(val, lx - vw / 2, ly - 16, 11, UI::TEXT);
         }
 
@@ -350,7 +350,7 @@ void render_environment(const Environment& env,
         int ly = graph_y + graph_h - 14;
         DrawRectangle(lx, ly, 8, 8, CLITERAL(Color){88, 166, 255, 255});
         draw_text(" Best", lx + 10, ly - 2, 10, UI::TEXT);
-        lx += (int)MeasureTextEx(game_font, " Best", 10, 1).x + 16;
+        lx += (int)MeasureTextEx(game_font, " Best", sp(10), 1).x + sp(16);
         agent_id = 'A';
         for (size_t ai = 0; ai < env.get_agents().size() && ai < agent_history.size(); ++ai, ++agent_id) {
             if (agent_history[ai].empty()) continue;
@@ -382,7 +382,7 @@ void render_environment(const Environment& env,
 
         std::string status = agent.is_alive() ? "Active" : "Inactive";
         Color status_col = agent.is_alive() ? UI::COL_GREEN : UI::COL_RED;
-        int sw_txt = (int)MeasureTextEx(game_font, status.c_str(), 12, 1).x;
+        int sw_txt = (int)MeasureTextEx(game_font, status.c_str(), sp(12), 1).x;
         draw_text(status, grid_pixel_width + sbw - 20 - sw_txt, sy + 6, 12, status_col);
 
         std::stringstream fs; fs << "Food: " << agent.total_food_eaten;

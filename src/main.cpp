@@ -136,10 +136,10 @@ static void run_simulation() {
         if (!message_text.empty() && GetTime() < message_timer) {
             int gs = RuntimeConfig::instance().grid_size;
             int gpw = std::max(1, std::min(GetScreenWidth(), GetScreenHeight()) / gs) * gs;
-            int mw = MeasureText(message_text.c_str(), 24);
+            int mw = MeasureText(message_text.c_str(), sp(24));
             DrawText(message_text.c_str(),
                      (gpw - mw) / 2, GetScreenHeight() / 2,
-                     24, UI::COL_GREEN);
+                     sp(24), UI::COL_GREEN);
         }
 
         if (debug_mode && paused) {
@@ -318,8 +318,18 @@ int main(int argc, char** argv) {
         }
     }
 
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
-    InitWindow(800, 600, "CUBES");
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
+
+    // Size window relative to current monitor so it looks consistent across
+    // platforms and DPI scales.  Without this, InitWindow(800,600) creates
+    // a window that appears much smaller on a 125 % Windows display (where
+    // 800 is interpreted as physical pixels under HIGHDPI) than on Linux.
+    {
+        int mon = GetCurrentMonitor();
+        int mw  = GetMonitorWidth(mon);
+        int mh  = GetMonitorHeight(mon);
+        InitWindow(mw * 3 / 4, mh * 3 / 4, "CUBES");
+    }
     MaximizeWindow();
     SetTargetFPS(60);
     SetExitKey(KEY_NULL);

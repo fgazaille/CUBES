@@ -35,3 +35,5 @@ test_nn
 
 # windows build files
 build-win/
+
+**/brain.json
